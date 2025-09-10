@@ -1,6 +1,7 @@
 from __future__ import annotations
 import io, re, json
 from typing import Any, Dict, Iterable, Tuple, Union
+import os
 import pandas as pd
 import numpy as np
 
@@ -19,7 +20,10 @@ def read_table(path_or_file: Union[str, io.BytesIO, io.StringIO],
     if name.lower().endswith(".parquet"):
         df = pd.read_parquet(path_or_file)  # 需要 pyarrow/fastparquet 时再装
     else:
-        df = pd.read_csv(path_or_file)
+        # 获取项目根目录
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        abs_path = os.path.join(project_root, 'examples', name)
+        df = pd.read_csv(abs_path)
     if max_rows:
         df = df.head(max_rows)
     return df
@@ -126,6 +130,6 @@ def profile(df: pd.DataFrame, example_rows: int = 5) -> Dict[str, Any]:
 
 # 小型自测
 if __name__ == "__main__":
-    dff = read_table("examples/titanic_small.csv")
+    dff = pd.read_csv(r"D:\CapStone\AutoML Data Analysis\automl-llm\examples\titanic_small.csv")
     prof = profile(dff)
     print(json.dumps(prof, ensure_ascii=False, indent=2)[:1500], "...\nOK")
