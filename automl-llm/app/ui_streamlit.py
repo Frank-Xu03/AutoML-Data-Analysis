@@ -1,5 +1,3 @@
-
-
 import streamlit as st
 import os
 import json
@@ -59,3 +57,34 @@ if uploaded_file is not None:
 		st.subheader("判定结果")
 		st.json(st.session_state["plan"])
 		st.caption("上面结果将指导后续：目标列选择、候选算法、评估指标与交叉验证设置。")
+
+	# ------------------ 训练设置与训练流程（最小接入） ------------------
+	import sys, os
+	sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+	from core import cleandata, train as train_core
+
+	st.subheader("训练设置（本地）")
+	target = st.selectbox("目标列", options=[c for c in df.columns if c != ""], index=0)
+	task_type = st.selectbox("任务类型", ["classification", "regression"])
+	picked = st.multiselect(
+		"候选算法",
+		["logreg","rf","xgb","knn","mlp"] if task_type=="classification" else ["linreg","ridge","rf","xgb","knn","mlp"],
+		default=["rf","xgb"]
+	)
+	budget = st.slider("每模型搜索次数 (n_iter)", 10, 80, 30)
+	folds = st.slider("CV 折数", 3, 10, 5)
+
+	if st.button("开始训练"):
+		X_train, X_test, y_train, y_test, pre, col_info = cleandata.prepare(df, target, task_type)
+		leaderboard, artifacts = train_core.run_all(
+			X_train, y_train, X_test, y_test,
+			task_type=task_type,
+			picked_models=picked,
+			preprocessor=pre,
+			n_iter=budget,
+			cv_folds=folds,
+			artifacts_dir="artifacts"
+		)
+		st.success("训练完成！")
+		st.dataframe(leaderboard)
+		st.session_state["__eval_pack__"] = (task_type, X_test, y_test, artifacts)
