@@ -32,6 +32,7 @@ def test_env_loading():
         return False
     
     # 检查 OPENAI_API_KEY 环境变量
+    print(os.getenv("OPENAI_API_KEY"))  # Debug 输出，查看实际加载的值
     api_key = os.getenv("OPENAI_API_KEY")
     
     if not api_key:
