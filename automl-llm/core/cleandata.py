@@ -154,13 +154,53 @@ def prepare(
         else:
             y = y_raw.values
     else:
-        y = y_raw.astype(float).values
+        # For regression, try to convert to float
+        # If conversion fails, it might be a misclassified task
+        try:
+            y = y_raw.astype(float).values
+        except (ValueError, TypeError) as e:
+            # If target contains non-numeric values, suggest it might be classification
+            unique_values = y_raw.unique()
+            non_numeric = [v for v in unique_values if pd.isna(v) or (isinstance(v, str) and not str(v).replace('.', '').replace('-', '').isdigit())]
+            
+            if non_numeric:
+                raise ValueError(
+                    f"无法将目标变量转换为数值类型进行回归分析。"
+                    f"发现非数值值: {non_numeric[:5]}{'...' if len(non_numeric) > 5 else ''}。"
+                    f"请检查:\n"
+                    f"1. 目标列是否选择正确\n"
+                    f"2. 任务类型是否应该设置为 'classification' 而不是 'regression'\n"
+                    f"3. 数据是否需要清洗"
+                ) from e
+            else:
+                raise e
 
+    # 对于分类任务，检查是否可以进行分层采样
+    stratify_arg = None
+    if task_type == "classification":
+        # 检查每个类别是否至少有2个样本
+        unique, counts = np.unique(y, return_counts=True)
+        min_class_count = counts.min()
+        num_classes = len(unique)
+        total_samples = len(y)
+        test_samples = int(total_samples * test_size)
+        
+        # 检查测试集是否足够大来包含所有类别
+        if min_class_count >= 2 and test_samples >= num_classes:
+            stratify_arg = y
+        else:
+            # 给出详细的警告信息
+            if min_class_count < 2:
+                single_sample_classes = unique[counts == 1]
+                print(f"警告: 发现 {len(single_sample_classes)} 个类别只有1个样本，跳过分层采样")
+            elif test_samples < num_classes:
+                print(f"警告: 测试集样本数 ({test_samples}) 小于类别数 ({num_classes})，跳过分层采样")
+    
     X_train, X_test, y_train, y_test = train_test_split(
         X_all, y,
         test_size=test_size,
         random_state=random_state,
-        stratify=y if task_type == "classification" else None
+        stratify=stratify_arg
     )
 
     # 6) Preprocessor on TRAIN schema
