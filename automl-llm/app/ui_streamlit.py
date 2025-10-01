@@ -10,28 +10,185 @@ import pandas as pd
 st.title("LLM-Augmented AutoML (Local Training)")
 st.success("环境初始化成功。接下来将实现数据上传、判定与报告。")
 
-# 数据上传
-uploaded_file = st.file_uploader("上传数据文件（CSV）", type=["csv"])
+"""多文件上传区"""
+uploaded_files = st.file_uploader("上传一个或多个 CSV 文件", type=["csv"], accept_multiple_files=True)
 
-if uploaded_file is not None:
-	df = pd.read_csv(uploaded_file)
-	# 保存到 examples 目录
-	save_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'examples', uploaded_file.name)
-	# 自动创建目录
-	os.makedirs(os.path.dirname(save_path), exist_ok=True)
-	with open(save_path, "wb") as f:
-		f.write(uploaded_file.getbuffer())
-	st.success(f"文件已保存到 examples/{uploaded_file.name}")
+active_df = None
+df_source_name = None
+loaded_dfs = {}
+
+if uploaded_files:
+	examples_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'examples')
+	os.makedirs(examples_dir, exist_ok=True)
+	for uf in uploaded_files:
+		try:
+			df_tmp = pd.read_csv(uf)
+			loaded_dfs[uf.name] = df_tmp
+			# 保存文件
+			save_path = os.path.join(examples_dir, uf.name)
+			with open(save_path, 'wb') as f:
+				f.write(uf.getbuffer())
+		except Exception as e:
+			st.error(f"读取文件 {uf.name} 失败: {e}")
+
+	st.success(f"成功载入 {len(loaded_dfs)} 个文件。")
+
+	# -------- 新增：显示多个文件共同拥有的列名（公共列） --------
+	if len(loaded_dfs) >= 2:
+		# 计算所有数据集的列集合交集
+		list_of_colsets = [set(df.columns) for df in loaded_dfs.values() if hasattr(df, 'columns')]
+		if list_of_colsets:  # 防御性检查
+			common_columns = set.intersection(*list_of_colsets) if len(list_of_colsets) > 1 else list_of_colsets[0]
+		else:
+			common_columns = set()
+
+		with st.expander("📌 多文件公共列 (所有文件都包含)", expanded=True):
+			if common_columns:
+				st.write(f"共 {len(common_columns)} 个公共列：")
+				# 排序便于浏览
+				st.code("\n".join(sorted(common_columns)))
+			else:
+				st.warning("未找到所有文件都共同拥有的列。")
+
+			# 提示：可选展示每个文件缺失的列（帮助用户理解差异）
+			show_diff = st.checkbox("显示各文件缺失公共列情况", value=False)
+			if show_diff and common_columns:
+				for fname, df_tmp in loaded_dfs.items():
+					missing_in_file = common_columns - set(df_tmp.columns)
+					if missing_in_file:
+						st.error(f"{fname} 缺失 {len(missing_in_file)} 个公共列：{', '.join(sorted(missing_in_file))}")
+					else:
+						st.success(f"{fname} 包含全部公共列 ✔")
+
+			# ---------------- 合并功能（新增：横向匹配模式） ----------------
+			st.markdown("---")
+			st.markdown("### 🔗 合并工具")
+			merge_mode = st.radio(
+				"选择合并方式",
+				["纵向堆叠（仅公共列）", "横向匹配（公共列作为键，合并其余列）"],
+				index=0,
+				help="横向匹配=类似多表 join；纵向堆叠=append 行。"
+			)
+
+			if merge_mode.startswith("纵向"):
+				st.caption("仅保留公共列并按行堆叠（之前的行为）。")
+				add_source_col = st.checkbox("添加来源文件列 (_source_file)", value=True, key="add_source_file")
+				merge_btn = st.button("⚙️ 执行纵向合并", key="merge_vertical")
+				if merge_btn:
+					if not common_columns:
+						st.error("无法合并：没有公共列。")
+					else:
+						try:
+							merged_parts = []
+							for fname, df_part in loaded_dfs.items():
+								subset = df_part[list(common_columns)].copy()
+								if add_source_col:
+									subset["_source_file"] = fname
+								merged_parts.append(subset)
+							merged_df = pd.concat(merged_parts, ignore_index=True)
+							base_name = "merged_common.csv"
+							final_name = base_name
+							idx = 1
+							while final_name in loaded_dfs:
+								idx += 1
+								final_name = f"merged_common_{idx}.csv"
+							try:
+								examples_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'examples')
+								os.makedirs(examples_dir, exist_ok=True)
+								merged_path = os.path.join(examples_dir, final_name)
+								merged_df.to_csv(merged_path, index=False, encoding="utf-8")
+							except Exception as fs_err:
+								st.warning(f"合并文件保存失败，但内存依旧可用：{fs_err}")
+							loaded_dfs[final_name] = merged_df
+							st.session_state["merged_common_df"] = merged_df
+							st.success(f"纵向合并成功：{final_name}，形状 {merged_df.shape}")
+							csv_bytes = merged_df.to_csv(index=False).encode('utf-8')
+							st.download_button("⬇️ 下载结果", data=csv_bytes, file_name=final_name, mime="text/csv")
+							st.info("在下方文件选择框中可选择该合并文件继续分析。")
+						except Exception as merge_err:
+							st.error(f"合并失败：{merge_err}")
+
+			else:  # 横向匹配
+				st.caption("使用公共列作为键做多表 join，保留每个文件的其余列。")
+				if not common_columns:
+					st.error("无法进行横向匹配：没有公共列。")
+				else:
+					key_cols = sorted(common_columns)
+					st.info(f"键列：{', '.join(key_cols)}")
+					join_type = st.selectbox("Join 类型", ["outer", "inner", "left"], index=0, help="outer=保留所有键; inner=仅公共键; left=以第一个文件为主表")
+					prefix_cols = st.checkbox("为非键列加文件名前缀以防冲突", value=True, key="prefix_non_key")
+					drop_dup = st.checkbox("如果某文件键列有重复行，仅保留第一条", value=True, key="drop_dup_keys")
+					btn_hmerge = st.button("⚙️ 执行横向匹配合并", key="merge_horizontal")
+					if btn_hmerge:
+						try:
+							merged_df = None
+							for idx_file, (fname, df_part) in enumerate(loaded_dfs.items()):
+								work_df = df_part.copy()
+								missing_keys = [k for k in key_cols if k not in work_df.columns]
+								if missing_keys:
+									st.error(f"文件 {fname} 缺失键列 {missing_keys}，跳过。")
+									continue
+								# 处理重复键
+								if drop_dup and work_df.duplicated(subset=key_cols).any():
+									dup_count = work_df.duplicated(subset=key_cols).sum()
+									st.warning(f"{fname} 键列存在 {dup_count} 个重复，将保留第一条。")
+									work_df = work_df.drop_duplicates(subset=key_cols, keep='first')
+								non_key_cols = [c for c in work_df.columns if c not in key_cols]
+								if prefix_cols:
+									base_prefix = os.path.splitext(os.path.basename(fname))[0]
+									rename_map = {c: f"{base_prefix}__{c}" for c in non_key_cols}
+									work_df = work_df.rename(columns=rename_map)
+								cols_to_use = key_cols + [c for c in work_df.columns if c not in key_cols]
+								if merged_df is None:
+									merged_df = work_df[cols_to_use]
+								else:
+									merged_df = pd.merge(merged_df, work_df[cols_to_use], on=key_cols, how=join_type)
+							if merged_df is None:
+								st.error("未能生成合并结果（可能所有文件都被跳过）")
+							else:
+								base_name = "merged_horizontal.csv"
+								final_name = base_name
+								ix = 1
+								while final_name in loaded_dfs:
+									ix += 1
+									final_name = f"merged_horizontal_{ix}.csv"
+								try:
+									examples_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'examples')
+									os.makedirs(examples_dir, exist_ok=True)
+									merged_path = os.path.join(examples_dir, final_name)
+									merged_df.to_csv(merged_path, index=False, encoding='utf-8')
+								except Exception as fs_err:
+									st.warning(f"合并文件保存失败，但内存仍可使用：{fs_err}")
+								loaded_dfs[final_name] = merged_df
+								st.success(f"横向匹配合并成功：{final_name}，形状 {merged_df.shape}")
+								csv_bytes = merged_df.to_csv(index=False).encode('utf-8')
+								st.download_button("⬇️ 下载结果", data=csv_bytes, file_name=final_name, mime="text/csv")
+								st.info("在下方文件选择框中可选择该横向合并文件继续分析。")
+						except Exception as e:
+							st.error(f"横向合并失败：{e}")
+	else:
+		st.info("上传 2 个及以上文件后，将在此显示它们的公共列。")
+
+	file_names = list(loaded_dfs.keys())
+	pick_name = st.selectbox("选择一个文件进行预览与分析", file_names)
+	active_df = loaded_dfs.get(pick_name)
+	df_source_name = pick_name
+
+if active_df is not None:
+	df = active_df  # 保持后续代码变量名不变
+	st.info(f"当前活动数据集: {df_source_name}; 形状: {df.shape}")
 	st.write("数据预览：")
 	st.dataframe(df.head())
-	st.write("数据描述：")
-	st.write(df.describe())
-	st.write("缺失值统计：")
-	st.write(df.isnull().sum())
+
+	#（已移除多文件主列匹配功能）
+	with st.expander("�🔎 数据概览", expanded=False):
+		st.write("数据描述：")
+		st.write(df.describe(include='all').transpose())
+		st.write("缺失值统计：")
+		st.write(df.isnull().sum())
 
 	# ----------- 判定按钮与结果展示区块 -------------
-	# 这里假设 prof 是数据 profile，实际应由 ingest/profile 生成
-	# 你可以用 df.describe().to_dict() 或自定义 profile
+	# 构建简易 profile；后续可替换为 ingest.profile
 	prof = {
 		"columns": [
 			{"name": c, "dtype": str(df[c].dtype), "missing": int(df[c].isnull().sum()), "unique": int(df[c].nunique())}
@@ -376,6 +533,18 @@ if uploaded_file is not None:
 	
 	folds = st.slider("CV 折数", 3, 10, default_folds)
 
+
+	# 评估行数限制设置
+	with st.expander("⚙️ 评估数据量设置", expanded=False):
+		col_a, col_b = st.columns([1,2])
+		with col_a:
+			use_eval_limit = st.checkbox("限制评估行数", value=True, help="仅在评估指标/预测时使用测试集前 N 行，适合快速迭代。")
+		with col_b:
+			if use_eval_limit:
+				custom_eval_rows = st.number_input("评估最大行数 N", min_value=50, max_value=20000, value=500, step=50, help="超过该行数时仅截取前 N 行；不影响模型训练。")
+			else:
+				custom_eval_rows = None
+
 	if st.button("开始训练"):
 		X_train, X_test, y_train, y_test, pre, col_info = cleandata.prepare(df, target, task_type)
 		leaderboard, artifacts = train_core.run_all(
@@ -389,4 +558,23 @@ if uploaded_file is not None:
 		)
 		st.success("训练完成！")
 		st.dataframe(leaderboard)
-		st.session_state["__eval_pack__"] = (task_type, X_test, y_test, artifacts)
+		# 根据用户设置限制评估阶段使用的测试集行数
+		if custom_eval_rows and custom_eval_rows > 0 and len(X_test) > custom_eval_rows:
+			n_eval = int(min(custom_eval_rows, len(X_test)))
+			if hasattr(X_test, 'head'):
+				try:
+					X_test_eval = X_test.head(n_eval)
+				except Exception:
+					X_test_eval = X_test[:n_eval]
+			else:
+				X_test_eval = X_test[:n_eval]
+			if hasattr(y_test, 'iloc'):
+				y_test_eval = y_test.iloc[:n_eval]
+			else:
+				y_test_eval = y_test[:n_eval]
+			st.info(f"评估行数限制启用：使用测试集前 {n_eval} 行（原始 {len(X_test)} 行）。")
+		else:
+			X_test_eval = X_test
+			y_test_eval = y_test
+			st.info(f"评估行数限制未启用，使用全部测试集 {len(X_test)} 行。")
+		st.session_state["__eval_pack__"] = (task_type, X_test_eval, y_test_eval, artifacts)
