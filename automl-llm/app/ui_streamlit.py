@@ -33,6 +33,11 @@ if uploaded_files:
 
 	st.success(f"成功载入 {len(loaded_dfs)} 个文件。")
 
+	# 顶部占位：将“文件预览与分析”移动到合并功能上方显示
+	select_container = st.container()
+	# 顶部占位：将“数据预览/数据概览”也移动到合并功能上方显示
+	preview_container = st.container()
+
 	# -------- 新增：显示多个文件共同拥有的列名（公共列） --------
 	if len(loaded_dfs) >= 2:
 		# 计算所有数据集的列集合交集
@@ -100,11 +105,13 @@ if uploaded_files:
 							except Exception as fs_err:
 								st.warning(f"合并文件保存失败，但内存依旧可用：{fs_err}")
 							loaded_dfs[final_name] = merged_df
+							# 记录首选文件名，便于上方选择框自动选中
+							st.session_state["preferred_file_name"] = final_name
 							st.session_state["merged_common_df"] = merged_df
 							st.success(f"纵向合并成功：{final_name}，形状 {merged_df.shape}")
 							csv_bytes = merged_df.to_csv(index=False).encode('utf-8')
 							st.download_button("⬇️ 下载结果", data=csv_bytes, file_name=final_name, mime="text/csv")
-							st.info("在下方文件选择框中可选择该合并文件继续分析。")
+							st.info("在上方文件选择框中可选择该合并文件继续分析。")
 						except Exception as merge_err:
 							st.error(f"合并失败：{merge_err}")
 
@@ -160,32 +167,44 @@ if uploaded_files:
 								except Exception as fs_err:
 									st.warning(f"合并文件保存失败，但内存仍可使用：{fs_err}")
 								loaded_dfs[final_name] = merged_df
+								# 记录首选文件名，便于上方选择框自动选中
+								st.session_state["preferred_file_name"] = final_name
 								st.success(f"横向匹配合并成功：{final_name}，形状 {merged_df.shape}")
 								csv_bytes = merged_df.to_csv(index=False).encode('utf-8')
 								st.download_button("⬇️ 下载结果", data=csv_bytes, file_name=final_name, mime="text/csv")
-								st.info("在下方文件选择框中可选择该横向合并文件继续分析。")
+								st.info("在上方文件选择框中可选择该横向合并文件继续分析。")
 						except Exception as e:
 							st.error(f"横向合并失败：{e}")
 	else:
 		st.info("上传 2 个及以上文件后，将在此显示它们的公共列。")
 
-	file_names = list(loaded_dfs.keys())
-	pick_name = st.selectbox("选择一个文件进行预览与分析", file_names)
-	active_df = loaded_dfs.get(pick_name)
-	df_source_name = pick_name
+	# 在顶部容器中渲染选择框，使其显示在合并功能上方
+	with select_container:
+		file_names = list(loaded_dfs.keys())
+		preferred = st.session_state.get("preferred_file_name")
+		if preferred in file_names:
+			default_idx = file_names.index(preferred)
+		else:
+			default_idx = 0 if file_names else 0
+		pick_name = st.selectbox("选择一个文件进行预览与分析", file_names, index=default_idx, key="file_picker_top")
+		active_df = loaded_dfs.get(pick_name)
+		df_source_name = pick_name
 
 if active_df is not None:
 	df = active_df  # 保持后续代码变量名不变
-	st.info(f"当前活动数据集: {df_source_name}; 形状: {df.shape}")
-	st.write("数据预览：")
-	st.dataframe(df.head())
 
-	#（已移除多文件主列匹配功能）
-	with st.expander("�🔎 数据概览", expanded=False):
-		st.write("数据描述：")
-		st.write(df.describe(include='all').transpose())
-		st.write("缺失值统计：")
-		st.write(df.isnull().sum())
+	# 将“当前活动数据集 + 数据预览 + 数据概览”上移到合并工具上方的容器中
+	with preview_container:
+		st.info(f"当前活动数据集: {df_source_name}; 形状: {df.shape}")
+		st.write("数据预览：")
+		st.dataframe(df.head())
+
+		#（已移除多文件主列匹配功能）
+		with st.expander("🔎 数据概览", expanded=False):
+			st.write("数据描述：")
+			st.write(df.describe(include='all').transpose())
+			st.write("缺失值统计：")
+			st.write(df.isnull().sum())
 
 	# ----------- 判定按钮与结果展示区块 -------------
 	# 构建简易 profile；后续可替换为 ingest.profile
@@ -194,7 +213,7 @@ if active_df is not None:
 			{"name": c, "dtype": str(df[c].dtype), "missing": int(df[c].isnull().sum()), "unique": int(df[c].nunique())}
 			for c in df.columns
 		]
-	}
+	}												
 
 	user_question = st.text_area("你的问题（可选）", placeholder="例如：我们能否预测乘客是否生还？或 预测价格/分群等。")
 
