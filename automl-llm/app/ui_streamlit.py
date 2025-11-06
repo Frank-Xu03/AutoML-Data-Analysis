@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import shutil
 import json
 import sys
 sys.path.append(os.path.dirname(__file__))
@@ -9,6 +10,27 @@ import pandas as pd
 
 st.title("LLM-Augmented AutoML (Local Training)")
 st.success("环境初始化成功。接下来将实现数据上传、判定与报告。")
+
+# 会话首次运行时清空 examples 目录（避免每次 rerun 都清空新上传文件）
+try:
+	if not st.session_state.get("__examples_cleared__", False):
+		project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+		examples_dir = os.path.join(project_root, 'examples')
+		if os.path.exists(examples_dir):
+			for name in os.listdir(examples_dir):
+				p = os.path.join(examples_dir, name)
+				try:
+					if os.path.isfile(p) or os.path.islink(p):
+						os.remove(p)
+					elif os.path.isdir(p):
+						shutil.rmtree(p)
+				except Exception:
+					# 单个文件失败不影响整体
+					pass
+		st.session_state["__examples_cleared__"] = True
+		st.caption("已按需求清空 examples 文件夹（本会话仅一次）。")
+except Exception as __clear_err:
+	st.warning(f"清空 examples 文件夹失败：{__clear_err}")
 
 """多文件上传区"""
 uploaded_files = st.file_uploader("上传一个或多个 CSV 文件", type=["csv"], accept_multiple_files=True)
@@ -112,6 +134,10 @@ if uploaded_files:
 							csv_bytes = merged_df.to_csv(index=False).encode('utf-8')
 							st.download_button("⬇️ 下载结果", data=csv_bytes, file_name=final_name, mime="text/csv")
 							st.info("在上方文件选择框中可选择该合并文件继续分析。")
+							# 合并完成后，默认将该结果用于训练
+							st.session_state["train_df"] = merged_df
+							st.session_state["train_source_name"] = final_name
+							st.success("训练将默认使用该合并结果。")
 						except Exception as merge_err:
 							st.error(f"合并失败：{merge_err}")
 
@@ -173,6 +199,10 @@ if uploaded_files:
 								csv_bytes = merged_df.to_csv(index=False).encode('utf-8')
 								st.download_button("⬇️ 下载结果", data=csv_bytes, file_name=final_name, mime="text/csv")
 								st.info("在上方文件选择框中可选择该横向合并文件继续分析。")
+								# 合并完成后，默认将该结果用于训练
+								st.session_state["train_df"] = merged_df
+								st.session_state["train_source_name"] = final_name
+								st.success("训练将默认使用该合并结果。")
 						except Exception as e:
 							st.error(f"横向合并失败：{e}")
 	else:
@@ -207,13 +237,18 @@ if active_df is not None:
 			st.write(df.isnull().sum())
 
 	# ----------- 判定按钮与结果展示区块 -------------
+	# 优先使用最近一次合并结果作为 LLM 分析数据源
+	analysis_df = st.session_state.get("train_df", df)
+	analysis_df_name = st.session_state.get("train_source_name", df_source_name)
+	st.caption(f"AI 分析数据源：{analysis_df_name}")
+
 	# 构建简易 profile；后续可替换为 ingest.profile
 	prof = {
 		"columns": [
-			{"name": c, "dtype": str(df[c].dtype), "missing": int(df[c].isnull().sum()), "unique": int(df[c].nunique())}
-			for c in df.columns
+			{"name": c, "dtype": str(analysis_df[c].dtype), "missing": int(analysis_df[c].isnull().sum()), "unique": int(analysis_df[c].nunique())}
+			for c in analysis_df.columns
 		]
-	}												
+	}															
 
 	user_question = st.text_area("你的问题（可选）", placeholder="例如：我们能否预测乘客是否生还？或 预测价格/分群等。")
 
@@ -446,6 +481,21 @@ if active_df is not None:
 	from core import cleandata, train as train_core
 
 	st.subheader("🛠️ 训练设置（本地）")
+
+	# 训练数据来源选择：默认使用最新合并结果（若存在），否则使用当前活动数据集
+	options = []
+	if "train_df" in st.session_state and "train_source_name" in st.session_state:
+		options.append(f"最新合并结果（{st.session_state['train_source_name']}）")
+	options.append(f"当前活动数据集（{df_source_name}）")
+	default_idx = 0 if options and options[0].startswith("最新合并结果") else 0
+	selected_source = st.radio("训练数据来源", options, index=default_idx, horizontal=True)
+	if selected_source.startswith("最新合并结果") and "train_df" in st.session_state:
+		train_df = st.session_state["train_df"]
+		train_source_name = st.session_state.get("train_source_name", "最新合并结果")
+	else:
+		train_df = df
+		train_source_name = df_source_name
+	st.info(f"训练数据集：{train_source_name}；形状：{train_df.shape}")
 	
 	# 智能应用 AI 判定结果
 	plan = st.session_state.get("plan", {})
@@ -455,7 +505,7 @@ if active_df is not None:
 	ai_cv = plan.get("cv", {})
 	
 	# 目标列选择 - 优先使用 AI 推荐
-	available_columns = [c for c in df.columns if c != ""]
+	available_columns = [c for c in train_df.columns if c != ""]
 	if ai_targets and ai_targets[0] in available_columns:
 		default_target_index = available_columns.index(ai_targets[0])
 		st.success(f"🤖 AI 推荐目标列: {ai_targets[0]}")
@@ -466,7 +516,7 @@ if active_df is not None:
 	
 	# 自动推荐任务类型
 	if target:
-		target_series = df[target]
+		target_series = train_df[target]
 		target_series = target_series.dropna()  # 去除缺失值
 		
 		# 检查是否为数值类型
@@ -565,7 +615,7 @@ if active_df is not None:
 				custom_eval_rows = None
 
 	if st.button("开始训练"):
-		X_train, X_test, y_train, y_test, pre, col_info = cleandata.prepare(df, target, task_type)
+		X_train, X_test, y_train, y_test, pre, col_info = cleandata.prepare(train_df, target, task_type)
 		leaderboard, artifacts = train_core.run_all(
 			X_train, y_train, X_test, y_test,
 			task_type=task_type,

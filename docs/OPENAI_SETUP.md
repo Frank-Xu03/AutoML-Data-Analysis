@@ -36,6 +36,26 @@ set OPENAI_API_KEY=sk-your-actual-api-key-here
 export OPENAI_API_KEY="sk-your-actual-api-key-here"
 ```
 
+## 高级配置（可选）
+
+可以通过以下环境变量进一步配置 LLM 行为：
+
+```env
+# 自定义用于不同任务的模型与温度
+LLM_TASK_MODEL=gpt-4o-mini
+LLM_RESEARCH_MODEL=gpt-4o-mini
+LLM_TEMPERATURE=0.2
+
+# 使用 OpenAI 兼容的服务端点（例如代理或第三方兼容服务）
+# 默认为官方 https://api.openai.com/v1
+OPENAI_BASE_URL=https://api.openai.com/v1
+
+# 离线模式：不调用外部 LLM，改用启发式回退
+LLM_OFFLINE=0
+```
+
+注意：开启 `LLM_OFFLINE=1` 后，判定与研究问题建议将使用本地启发式回退，方便在无网络/无 Key 时体验流程。
+
 ## 步骤3: 安装依赖
 
 确保安装了 python-dotenv 包：

@@ -1,204 +1,203 @@
-# AutoML-LLM 数据分析平台
+# AutoML-LLM Data Analysis Platform
 
-🚀 **结合自动化机器学习（AutoML）与大语言模型（LLM）的智能数据分析平台**
+A practical data analysis platform that blends Automated ML (AutoML) with Large Language Models (LLMs).
 
-## 📋 项目简介
+中文版本: README.md
 
-AutoML-LLM 是一个创新的数据分析平台，融合了自动化机器学习和大语言模型技术。该平台通过智能化的数据处理、特征工程、模型选择与评估，大幅提升数据分析效率，并利用 LLM 实现自然语言交互与自动化决策建议。
+## What this project does
 
-### 🎯 核心特性
+AutoML-LLM streamlines data workflows from ingestion and cleaning to feature engineering, model selection, and evaluation. LLMs add natural-language assistance for task detection and research question suggestions. You can use a friendly Streamlit UI or call the core modules programmatically.
 
-- **🤖 智能任务检测**：基于 LLM 的自动任务类型识别
-- **📊 自动化数据处理**：智能数据清洗、特征工程和预处理
-- **🔍 模型自动选择**：根据数据特征自动选择最适合的机器学习模型
-- **📈 可视化界面**：基于 Streamlit 的友好用户界面
-- **🧠 研究问题建议**：AI 驱动的数据分析研究问题生成
-- **📋 详细报告生成**：自动化模型评估和结果解释
+## Key features
 
-### 🏗️ 项目结构
+- Task detection powered by LLMs (or offline heuristics)
+- Automated data cleaning and preprocessing
+- Model selection and tuning via RandomizedSearchCV
+- Streamlit-based visual UI
+- AI-generated research question suggestions
+- Artifacts and leaderboard export
+
+## Project structure
 
 ```
 AutoML Data Analysis/
-├── 📁 automl-llm/          # 主要应用代码
-│   ├── 📁 app/             # Streamlit UI 和 LLM 代理
-│   │   ├── ui_streamlit.py # 主要用户界面
-│   │   └── llm_agent.py    # LLM 智能代理
-│   ├── 📁 core/            # 核心数据处理模块
-│   │   ├── ingest.py       # 数据摄取和预处理
-│   │   ├── cleandata.py    # 数据清洗
-│   │   ├── models.py       # 机器学习模型定义
-│   │   └── train.py        # 模型训练和评估
-│   └── 📁 artifacts/       # 模型和结果存储
-├── 📁 tests/               # 完整测试套件
-├── 📁 demos/               # 演示脚本和示例
-├── 📁 docs/                # 详细文档和技术报告
-├── 📁 examples/            # 示例数据集
-├── 📁 prompts/             # LLM 提示模板
-├── 📄 usage_example.py     # 使用示例脚本
-├── 📄 requirements.txt     # Python 依赖
-└── 📄 README.md            # 项目说明（本文件）
+├── automl-llm/
+│   ├── app/
+│   │   ├── ui_streamlit.py   # Streamlit UI
+│   │   └── llm_agent.py      # LLM agent (OpenAI or offline)
+│   ├── core/
+│   │   ├── ingest.py         # Read/profile data
+│   │   ├── cleandata.py      # Cleaning & preprocessing
+│   │   ├── models.py         # Model registry and search spaces
+│   │   └── train.py          # Training loop and leaderboard
+│   └── artifacts/
+├── examples/                  # Example CSVs
+├── demos/                     # Demo scripts
+├── docs/                      # Reports and notes
+├── tests/                     # Test scripts
+├── requirements.txt
+├── usage_example.py
+└── README.md / README_en.md
 ```
 
-## 🚀 快速开始
+## Quick start
 
-### 环境要求
-
-- Python 3.8+
-- Windows/Linux/macOS
-- 2GB+ 可用内存
-
-### 1️⃣ 创建虚拟环境
+### 1) Create a virtual environment
 
 ```powershell
-# 创建虚拟环境
 python -m venv venv
-
-# 激活虚拟环境
-.\venv\Scripts\activate  # Windows
-# 或 source venv/bin/activate  # Linux/macOS
+.\venv\Scripts\activate
 ```
 
-### 2️⃣ 安装依赖
+### 2) Install dependencies
 
 ```powershell
 pip install -r requirements.txt
 ```
 
-### 3️⃣ 配置 OpenAI API（可选）
-
-如需使用 LLM 功能，请配置 OpenAI API 密钥：
+### 3) Optional: Configure OpenAI/compatible API
 
 ```powershell
-# 创建 .env 文件并添加你的 API 密钥
-echo "OPENAI_API_KEY=your_api_key_here" > .env
+# Create .env and add your key if you want online LLM
+# (offline mode works without a key)
+"OPENAI_API_KEY=your_api_key_here" | Out-File -FilePath .env -Encoding ascii
 ```
 
-更多配置详情请参考：[OpenAI 配置说明](docs/OPENAI_SETUP.md)
+See docs/OPENAI_SETUP.md for details.
 
-### 4️⃣ 启动应用
+### 4) Run the app
 
 ```powershell
-# 启动 Streamlit Web 界面
+# Streamlit UI
 streamlit run automl-llm/app/ui_streamlit.py
 
-# 或运行使用示例
+# or run the example script
 python usage_example.py
 ```
 
-## 💻 使用指南
+## Environment variables and offline mode
 
-### Web 界面使用
+You can run fully offline. When no API key is set or offline mode is enabled, the system falls back to robust heuristics.
 
-1. **数据上传**：在 Web 界面上传 CSV 格式的数据文件
-2. **自动分析**：系统自动进行数据预处理和任务类型检测
-3. **模型训练**：选择合适的机器学习模型进行自动训练
-4. **结果查看**：查看模型性能评估和可视化结果
-5. **研究建议**：获取 AI 生成的数据分析研究问题建议
+- OPENAI_API_KEY: API key for OpenAI (optional)
+- OPENAI_BASE_URL: Base URL for OpenAI-compatible services (optional)
+- LLM_OFFLINE: Set to 1 to force offline mode (default 0)
+- LLM_TASK_MODEL: Model name for task detection (default gpt-4o-mini)
+- LLM_RESEARCH_MODEL: Model name for research suggestions (default gpt-4o-mini)
+- LLM_TEMPERATURE: Sampling temperature (default 0.2)
 
-### 编程接口使用
-
-参考 `usage_example.py` 了解如何通过代码调用核心功能：
-
-```python
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), 'automl-llm'))
-
-from core.ingest import read_table
-from core.cleandata import clean_data
-from core.train import run_all
-
-# 读取数据
-df = read_table("examples/your_data.csv")
-
-# 自动数据清洗和预处理
-cleaned_data = clean_data(df, task_type="auto", target_col="your_target")
-
-# 自动模型训练和评估
-results = run_all(X_train, y_train, X_test, y_test, 
-                  task_type="classification", 
-                  picked_models=["random_forest", "xgboost"])
-```
-
-## 🧪 运行测试
-
-项目包含完整的测试套件，确保功能正常：
+PowerShell (current session only):
 
 ```powershell
-# 运行完整系统测试
-python tests/test_complete_system.py
+$env:LLM_OFFLINE = "1"
+$env:OPENAI_API_KEY = "sk-..."
+```
 
-# 运行特定功能测试
+Persist for new terminals:
+
+```powershell
+setx LLM_OFFLINE "1"
+setx OPENAI_API_KEY "sk-..."
+```
+
+## How to use
+
+### Web UI
+
+1) Upload one or more CSV files
+2) Inspect data profile and preview
+3) Use "Discover Research Questions" to generate analysis ideas
+4) Use "Detect Task" to get task type, candidate targets, algorithms, and metrics
+5) Configure training and run models; view leaderboard and download results
+
+CSV merge capabilities:
+- Compute common columns across uploads
+- Vertical stack: keep only common columns; optionally add `_source_file`
+- Horizontal join: use common columns as keys; auto-prefix non-key columns to avoid collisions
+- Merged results are saved in `examples/` as `merged_common.csv` or `merged_horizontal.csv`
+
+### Programmatic usage
+
+See `usage_example.py`. Typical flow:
+
+```python
+import sys, os
+sys.path.append(os.path.join(os.path.dirname(__file__), 'automl-llm'))
+from core.ingest import read_table
+from core.cleandata import prepare
+from core.train import run_all
+
+# Load a CSV from examples/
+df = read_table('tags.csv')
+
+# Prepare
+X_train, X_test, y_train, y_test, pre, col_info = prepare(df, target='tag', task_type='classification')
+
+# Train a few models
+leaderboard, artifacts = run_all(
+    X_train, y_train, X_test, y_test,
+    task_type='classification',
+    picked_models=['rf','xgb'],
+    preprocessor=pre,
+    n_iter=30,
+    cv_folds=5,
+    artifacts_dir='artifacts'
+)
+```
+
+## Tests
+
+```powershell
+python tests/test_complete_system.py
 python tests/test_openai_setup.py
-python tests/test_research_questions.py
+python tests/test_research_questions_fixed.py
 python tests/test_ui_attributeerror_fix.py
 ```
 
-## 📚 功能特性详解
+Note: LLM-related tests will fall back to offline mode when no key is configured.
 
-### 🔍 智能任务检测
-- 基于数据特征自动识别分类/回归任务
-- 支持多种数据类型：数值型、分类型、时间序列
+## Docs
 
-### 🛠️ 自动化数据处理
-- **数据清洗**：缺失值处理、异常值检测
-- **特征工程**：自动特征选择、编码转换
-- **数据分割**：智能训练/测试集划分
+- docs/FOLDER_ORGANIZATION_README.md
+- docs/ATTRIBUTEERROR_FIX_REPORT.md
+- docs/UI_IMPROVEMENT_REPORT.md
+- docs/RESEARCH_QUESTIONS_FEATURE_REPORT.md
+- docs/PYLANCE_FIX_REPORT.md
 
-### 🤖 机器学习模型
-支持多种主流算法：
-- **分类**：Random Forest, XGBoost, SVM, Logistic Regression
-- **回归**：Linear Regression, Ridge, Lasso, Gradient Boosting
-- **集成学习**：自动模型选择和超参数优化
+## Example data and artifacts
 
-### 🎨 可视化分析
-- 数据分布可视化
-- 模型性能对比图表
-- 特征重要性分析
-- 预测结果展示
+- Example CSVs in `examples/`: `movies.csv`, `ratings.csv`, `tags.csv`, `links.csv`, etc.
+- Training outputs under `artifacts/`, e.g. `leaderboard.csv`.
 
-## 📖 技术文档
+## Use cases
 
-- [文件夹组织说明](docs/FOLDER_ORGANIZATION_README.md)
-- [AttributeError 修复报告](docs/ATTRIBUTEERROR_FIX_REPORT.md)
-- [UI 改进报告](docs/UI_IMPROVEMENT_REPORT.md)
-- [研究问题功能报告](docs/RESEARCH_QUESTIONS_FEATURE_REPORT.md)
-- [Pylance 修复报告](docs/PYLANCE_FIX_REPORT.md)
+- Academia: quick EDA and hypothesis validation
+- Enterprise: predictive modeling and decision support
+- Education: ML & data science teaching tool
+- Prototyping: build data-driven apps fast
 
-## 🎯 适用场景
+## Contributing
 
-- **🎓 学术研究**：快速进行数据分析和假设验证
-- **💼 企业应用**：业务数据智能分析和预测
-- **📚 教学培训**：机器学习和数据科学教学工具
-- **🚀 原型开发**：快速构建数据驱动的应用原型
+PRs and issues are welcome:
 
-## 🤝 贡献指南
+1. Fork the repo
+2. Create a branch: `git checkout -b feature/AmazingFeature`
+3. Commit: `git commit -m "Add AmazingFeature"`
+4. Push: `git push origin feature/AmazingFeature`
+5. Open a PR
 
-欢迎提交 Issues 和 Pull Requests！
+## Changelog (highlights)
 
-1. Fork 本项目
-2. 创建特性分支：`git checkout -b feature/AmazingFeature`
-3. 提交更改：`git commit -m 'Add some AmazingFeature'`
-4. 推送到分支：`git push origin feature/AmazingFeature`
-5. 开启 Pull Request
+- Fixed AttributeError cases
+- Improved Streamlit UX
+- Added research question suggestions
+- Refined folder structure and tests
 
-## 📝 更新日志
+## Contact
 
-### 最新版本特性
-- ✅ 修复了 AttributeError 相关问题
-- ✅ 改进了 Streamlit UI 用户体验
-- ✅ 增加了研究问题自动生成功能
-- ✅ 优化了文件夹结构和代码组织
-- ✅ 完善了测试覆盖和错误处理
-
-## 📞 联系方式
-
-如有问题或建议，请通过以下方式联系：
-
-- 📧 Email: [项目维护者邮箱]
-- 🐛 Issues: [GitHub Issues](https://github.com/Frank-Xu03/AutoML-Data-Analysis/issues)
-- 📖 Wiki: [项目文档](https://github.com/Frank-Xu03/AutoML-Data-Analysis/wiki)
+- Issues: https://github.com/Frank-Xu03/AutoML-Data-Analysis/issues
+- Docs Wiki: https://github.com/Frank-Xu03/AutoML-Data-Analysis/wiki
 
 ---
 
-**AutoML-LLM** - 让数据分析更智能、更高效 🚀
+AutoML-LLM — make data analysis intelligent and efficient.

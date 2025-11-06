@@ -3,6 +3,8 @@ from __future__ import annotations
 import os, json
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, ValidationError, model_validator
+
+# OpenAI 官方 SDK（支持自定义 base_url，亦可兼容各类 OpenAI-Compatible 服务）
 from openai import OpenAI
 
 # 尝试加载 .env 文件
@@ -15,6 +17,18 @@ try:
 except ImportError:
     # 如果没有安装 python-dotenv，给出提示
     print("提示: 安装 python-dotenv 可以自动加载 .env 文件中的环境变量")
+
+# -------- LLM 配置（可通过环境变量覆盖） --------
+# 说明：
+# - 支持通过 OPENAI_BASE_URL 指向 OpenAI 兼容的推理服务（如本地代理/第三方兼容服务）
+# - 可设置 LLM_OFFLINE=1 关闭外网调用，仅使用本地启发式回退
+# - 可分别设置两个任务的模型与温度
+LLM_OFFLINE = os.getenv("LLM_OFFLINE", "0") == "1"
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL")  # e.g. https://api.openai.com/v1 或第三方兼容地址
+
+DEFAULT_TASK_MODEL = os.getenv("LLM_TASK_MODEL", "gpt-4o-mini")
+DEFAULT_RESEARCH_MODEL = os.getenv("LLM_RESEARCH_MODEL", "gpt-4o-mini")
+DEFAULT_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
 
 ALGO_WHITELIST = {
     "logistic_regression","random_forest","xgboost","knn","mlp",
@@ -58,22 +72,44 @@ class Plan(BaseModel):
                             else ["silhouette"])
         return self
 
-def _client():
+def _client() -> OpenAI:
+    """
+    构建 OpenAI 客户端：
+    - 读取 OPENAI_API_KEY（必需，除非 LLM_OFFLINE=1）
+    - 若配置了 OPENAI_BASE_URL，则指向兼容的服务端点
+    - 可在上层通过 client.with_options(timeout=...) 指定超时、重试等
+    """
+    if LLM_OFFLINE:
+        # 离线模式下不创建真实客户端
+        raise RuntimeError("LLM_OFFLINE=1：已禁用外部 LLM 调用")
     key = os.getenv("OPENAI_API_KEY")
     if not key:
         raise RuntimeError("OPENAI_API_KEY not set")
+    if OPENAI_BASE_URL:
+        return OpenAI(api_key=key, base_url=OPENAI_BASE_URL)
     return OpenAI(api_key=key)
+
+
+def _read_prompt(prompt_filename: str) -> Optional[str]:
+    """优先从项目根目录 prompts/ 读取 prompt；读取失败返回 None。"""
+    try:
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        p = os.path.join(project_root, "prompts", prompt_filename)
+        if os.path.exists(p):
+            with open(p, "r", encoding="utf-8") as f:
+                return f.read()
+    except Exception:
+        pass
+    return None
 
 def suggest_research_questions(profile: Dict[str, Any]) -> Dict[str, Any]:
     """
     分析数据集并建议可以研究的问题和应用场景
     """
-    try:
-        # 读取问题建议的 prompt
-        with open("prompts/research_questions.txt", "r", encoding="utf-8") as f:
-            system_prompt = f.read()
-    except FileNotFoundError:
-        # 如果文件不存在，使用内置的 prompt
+    # 读取问题建议 prompt（优先从项目根目录 prompts/）
+    system_prompt = _read_prompt("research_questions.txt")
+    if not system_prompt:
+        # 内置备选
         system_prompt = """
 你是一个数据分析专家。基于数据集的结构信息，分析这个数据集可以用来研究什么问题。
 
@@ -99,12 +135,29 @@ def suggest_research_questions(profile: Dict[str, Any]) -> Dict[str, Any]:
   "recommendations": "使用建议"
 }
 """
+    # 离线模式直接回退
+    if LLM_OFFLINE:
+        return {
+            "research_questions": [
+                {
+                    "question": "数据探索性分析：了解数据的基本特征和分布",
+                    "type": "探索",
+                    "target": "无",
+                    "difficulty": "简单",
+                    "business_value": "为后续深入分析提供基础"
+                }
+            ],
+            "application_scenarios": ["数据科学研究", "业务分析"],
+            "key_insights": ["需要进一步分析确定"],
+            "recommendations": "LLM 处于离线模式（LLM_OFFLINE=1），请手动探索数据特征"
+        }
     
-    client = _client()
+    # 在线调用
     try:
+        client = _client().with_options(timeout=30.0)
         resp = client.chat.completions.create(
-            model="gpt-4o-mini",
-            temperature=0.3,
+            model=DEFAULT_RESEARCH_MODEL,
+            temperature=max(0.0, min(1.0, DEFAULT_TEMPERATURE)),
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -129,7 +182,7 @@ def suggest_research_questions(profile: Dict[str, Any]) -> Dict[str, Any]:
             ],
             "application_scenarios": ["数据科学研究", "业务分析"],
             "key_insights": ["需要进一步分析确定"],
-            "recommendations": f"由于分析出错({str(e)})，建议手动探索数据特征"
+            "recommendations": f"由于分析出错({str(e)}), 建议手动探索数据特征"
         }
 
 def detect_task(profile: Dict[str, Any], user_question: str) -> Dict[str, Any]:
@@ -137,12 +190,20 @@ def detect_task(profile: Dict[str, Any], user_question: str) -> Dict[str, Any]:
     Calls OpenAI once to decide task type, target candidates, algorithms, metrics, CV.
     Sends ONLY a small profile (no raw full data).
     """
-    system = open("prompts/task_detection.txt", "r", encoding="utf-8").read()
-    client = _client()
+    # 读取系统提示词
+    system = _read_prompt("task_detection.txt") or (
+        "你是 AutoML 助手。根据用户问题与数据结构，产出 JSON 计划，包含任务类型/候选目标/算法/指标/CV 设置。"
+    )
+
+    # 离线或缺少密钥时走回退
+    if LLM_OFFLINE:
+        return _fallback_plan(profile)
+
     try:
+        client = _client().with_options(timeout=30.0)
         resp = client.chat.completions.create(
-            model="gpt-4o-mini",
-            temperature=0.1,
+            model=DEFAULT_TASK_MODEL,
+            temperature=max(0.0, min(1.0, DEFAULT_TEMPERATURE)),
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": system},
@@ -156,27 +217,33 @@ def detect_task(profile: Dict[str, Any], user_question: str) -> Dict[str, Any]:
         data = json.loads(raw)
         plan = Plan.model_validate(data)
         return plan.model_dump()
-    except (ValidationError, ValueError, KeyError) as e:
-        # Fallback — robust defaults by simple heuristics
-        # Heuristic: if any column is non-numeric with 2-10 unique values and named like 'y|label|target|survived|churn'
-        cols = [c["name"] for c in profile.get("columns", [])]
-        lname = [c.lower() for c in cols]
-        target_guess = None
-        for k in ["target","label","y","survived","churn","default","clicked","class"]:
-            if k in lname:
-                target_guess = cols[lname.index(k)]
-                break
-        task = "classification" if target_guess else "regression"
-        fallback = Plan(
-            task_type=task,
-            target_candidates=[target_guess] if target_guess else [],
-            algorithms=(["random_forest","xgboost","logistic_regression"] if task=="classification"
-                        else ["xgboost","ridge","knn"]),
-            metrics=(["f1_macro","roc_auc_ovr","accuracy"] if task=="classification"
-                     else ["rmse","mae","r2"]),
-            cv=CVSpec(folds=5, stratified=(task=="classification"))
-        )
-        return fallback.model_dump()
+    except (ValidationError, ValueError, KeyError, Exception):
+        # 无论解析/网络错误，统一回退
+        return _fallback_plan(profile)
+
+
+def _fallback_plan(profile: Dict[str, Any]) -> Dict[str, Any]:
+    """基于启发式的稳健回退方案。"""
+    cols = [c.get("name") if isinstance(c, dict) else str(c) for c in profile.get("columns", [])]
+    lname = [str(c).lower() for c in cols]
+    target_guess = None
+    for k in ["target","label","y","survived","churn","default","clicked","class"]:
+        if k in lname:
+            target_guess = cols[lname.index(k)]
+            break
+    task = "classification" if target_guess else "regression"
+    fallback = Plan(
+        task_type=task,
+        target_candidates=[target_guess] if target_guess else [],
+        algorithms=(
+            ["random_forest","xgboost","logistic_regression"] if task=="classification" else ["xgboost","ridge","knn"]
+        ),
+        metrics=(
+            ["f1_macro","roc_auc_ovr","accuracy"] if task=="classification" else ["rmse","mae","r2"]
+        ),
+        cv=CVSpec(folds=5, stratified=(task=="classification"))
+    )
+    return fallback.model_dump()
 
 def write_report(bundle: Dict[str, Any]) -> str:
     """
