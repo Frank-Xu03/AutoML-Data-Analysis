@@ -232,7 +232,7 @@ python tests/test_ui_attributeerror_fix.py
 
 如有问题或建议，请通过以下方式联系：
 
-- 📧 Email: [项目维护者邮箱]
+- 📧 Email: [xdn1356@126.com]
 - 🐛 Issues: [GitHub Issues](https://github.com/Frank-Xu03/AutoML-Data-Analysis/issues)
 - 📖 Wiki: [项目文档](https://github.com/Frank-Xu03/AutoML-Data-Analysis/wiki)
 
