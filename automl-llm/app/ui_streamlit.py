@@ -255,23 +255,43 @@ if active_df is not None:
 	col1, col2, col3 = st.columns([1,1,1])
 	with col1:
 		if st.button("🔍 发现研究问题"):
-			with st.spinner("AI 正在分析数据，寻找有价值的研究问题..."):
-				from llm_agent import suggest_research_questions
+			with st.spinner("AI 正在分析数据，寻找有价值的研究问题与清洗建议..."):
+				from llm_agent import suggest_research_questions, suggest_cleaning_suggestions
 				research_suggestions = suggest_research_questions(prof)
+				# 同步生成 清洗建议
+				clean_suggest = suggest_cleaning_suggestions(prof, user_question or "")
 			st.session_state["research_suggestions"] = research_suggestions
+			st.session_state["cleaning_suggest"] = clean_suggest
 			st.success("问题发现完成！")
 	
 	with col2:
 		if st.button("🤖 智能判定任务"):
-			with st.spinner("调用 OpenAI 判定任务类型与方案..."):
+			with st.spinner("调用 OpenAI 判定任务类型，并生成清洗建议..."):
+				from llm_agent import suggest_cleaning_suggestions
 				plan = detect_task(prof, user_question or "")
+				# 同步生成 清洗建议
+				clean_suggest = suggest_cleaning_suggestions(prof, user_question or "")
 			st.session_state["plan"] = plan
+			st.session_state["cleaning_suggest"] = clean_suggest
 			st.success("任务判定完成！")
 	
 	with col3:
 		if "plan" in st.session_state:
 			st.download_button("📄 下载判定结果", data=json.dumps(st.session_state["plan"], ensure_ascii=False, indent=2),
 							   file_name="task_plan.json", mime="application/json")
+
+	# 新增：目标列与特征保留/删除建议
+	col_a, col_b = st.columns([1,2])
+	with col_a:
+		if st.button("🎯 目标与特征建议"):
+			with st.spinner("AI 正在分析目标列与应保留/删除的列..."):
+				from llm_agent import suggest_target_and_features
+				feat_suggest = suggest_target_and_features(prof, user_question or "")
+			st.session_state["feature_suggest"] = feat_suggest
+			st.success("列建议已生成！")
+	with col_b:
+		if st.session_state.get("feature_suggest"):
+			st.caption("你可以将建议直接应用到后续训练的数据列中。")
 
 	# 显示研究问题建议
 	if "research_suggestions" in st.session_state:
@@ -336,12 +356,11 @@ if active_df is not None:
 				st.markdown("### ⚠️ **注意事项**")
 				for limitation in limitations:
 					st.warning(f"⚠️ {limitation}")
-			
+
 			# 建议
 			recommendations = suggestions.get("recommendations", {})
 			if recommendations:
 				st.markdown("### 🎯 **行动建议**")
-				
 				# 检查 recommendations 是否为字典
 				if isinstance(recommendations, dict):
 					priority = recommendations.get("priority_questions", [])
@@ -474,6 +493,222 @@ if active_df is not None:
 			st.json(plan)
 		
 		st.caption("💡 以上结果将自动应用到训练设置中，你也可以手动调整参数。")
+
+	# 已移除“目标列与特征选择建议”功能与应用入口
+
+	# 显示 数据清洗建议（合并到以上两个流程后展示）
+	if st.session_state.get("cleaning_suggest"):
+		st.subheader("🧹 数据清洗建议")
+		cs = st.session_state["cleaning_suggest"]
+		# Drop
+		drops = cs.get("drop_columns", [])
+		with st.expander(f"🗑️ 建议删除列（{len(drops)}）", expanded=False):
+			if drops:
+				for d in drops:
+					st.write(f"- {d.get('name')}: {d.get('reason','')}")
+			else:
+				st.write("无")
+		# Imputations
+		imps = cs.get("imputations", [])
+		with st.expander(f"🧩 缺失值填充建议（{len(imps)}）", expanded=False):
+			if imps:
+				for d in imps:
+					st.write(f"- {d.get('name')}: {d.get('strategy')}")
+			else:
+				st.write("无")
+		# Type casts and parse dates
+		casts = cs.get("type_casts", [])
+		pdates = cs.get("parse_dates", [])
+		with st.expander(f"🧭 类型转换建议（{len(casts)}）/ 日期解析（{len(pdates)}）", expanded=False):
+			if casts:
+				for d in casts:
+					st.write(f"- {d.get('name')} -> {d.get('to_dtype')}: {d.get('reason','')}")
+			else:
+				st.write("类型转换：无")
+			if pdates:
+				st.write("日期解析：")
+				st.code("\n".join(pdates))
+			else:
+				st.write("日期解析：无")
+		# Scaling
+		scaling = cs.get("scaling", {}) or {}
+		with st.expander("📐 缩放建议", expanded=False):
+			st.write(f"建议缩放: {'是' if scaling.get('apply') else '否'}")
+			sc_cols = scaling.get("columns", [])
+			if sc_cols:
+				st.code("\n".join(sc_cols))
+			else:
+				st.write("列：无")
+		# Outliers
+		outliers = cs.get("outliers", {}) or {}
+		with st.expander("📉 异常值处理建议", expanded=False):
+			st.write(f"建议处理: {'是' if outliers.get('apply') else '否'}; 方法: {outliers.get('method','iqr_clip')}")
+			out_cols = outliers.get("columns", [])
+			if out_cols:
+				st.code("\n".join(out_cols))
+			else:
+				st.write("列：无")
+		# Text processing
+		txts = cs.get("text_processing", [])
+		with st.expander(f"📝 文本处理建议（{len(txts)}）", expanded=False):
+			if txts:
+				for d in txts:
+					st.write(f"- {d.get('name')}: {d.get('suggestion')}")
+			else:
+				st.write("无")
+		# Leakage
+		leaks = cs.get("leakage_risk", [])
+		with st.expander(f"⚠️ 可能的泄露风险列（{len(leaks)}）", expanded=False):
+			if leaks:
+				st.code("\n".join(leaks))
+			else:
+				st.write("无")
+		st.caption(cs.get("notes") or "")
+
+		# ============ 一键与手动清洗操作 ============
+		st.markdown("---")
+		st.markdown("### ⚙️ 应用清洗操作")
+
+		# 当前用于训练/分析的数据
+		work_df = st.session_state.get("train_df", analysis_df)
+		work_name = st.session_state.get("train_source_name", analysis_df_name)
+		st.caption(f"清洗目标数据集：{work_name} 形状：{work_df.shape}")
+
+		# 一键应用 GPT 建议
+		def _iqr_clip_inline(df, cols, whisker: float = 1.5):
+			import numpy as np
+			df = df.copy()
+			for c in cols:
+				if c in df.columns:
+					try:
+						s = pd.to_numeric(df[c], errors='coerce')
+						q1, q3 = s.quantile(0.25), s.quantile(0.75)
+						iqr = q3 - q1
+						low, high = q1 - whisker * iqr, q3 + whisker * iqr
+						df[c] = s.clip(lower=low, upper=high)
+					except Exception:
+						pass
+			return df
+
+		def _apply_type_casts(df, casts):
+			df = df.copy()
+			for item in casts or []:
+				name = item.get('name')
+				to_dtype = (item.get('to_dtype') or '').lower()
+				if name not in df.columns:
+					continue
+				try:
+					if to_dtype in ('float','float64','double','number'):
+						df[name] = pd.to_numeric(df[name], errors='coerce')
+					elif to_dtype in ('int','int64','long'):
+						df[name] = pd.to_numeric(df[name], errors='coerce').astype('Int64')
+					elif to_dtype in ('bool','boolean'):
+						df[name] = df[name].astype('boolean')
+					elif to_dtype in ('category','categorical'):
+						df[name] = df[name].astype('category')
+					elif to_dtype in ('string','str','object'):
+						df[name] = df[name].astype('string')
+					# else: leave as is
+				except Exception:
+					pass
+			return df
+
+		def _apply_imputations(df, imputations):
+			df = df.copy()
+			for item in imputations or []:
+				name = item.get('name')
+				strategy = (item.get('strategy') or 'most_frequent').lower()
+				if name not in df.columns:
+					continue
+				try:
+					if strategy == 'median':
+						val = pd.to_numeric(df[name], errors='coerce').median()
+						df[name] = pd.to_numeric(df[name], errors='coerce').fillna(val)
+					elif strategy == 'mean':
+						val = pd.to_numeric(df[name], errors='coerce').mean()
+						df[name] = pd.to_numeric(df[name], errors='coerce').fillna(val)
+					else:  # most_frequent
+						val = df[name].mode(dropna=True)
+						val = val.iloc[0] if len(val) else None
+						if val is not None:
+							df[name] = df[name].fillna(val)
+				except Exception:
+					pass
+			return df
+
+		col_btn1, col_btn2 = st.columns([1,2])
+		with col_btn1:
+			if st.button("⚡ 一键应用 GPT 清洗建议"):
+				try:
+					new_df = work_df.copy()
+					# Drop
+					to_drop = [d.get('name') for d in (cs.get('drop_columns') or []) if d.get('name') in new_df.columns]
+					if to_drop:
+						new_df = new_df.drop(columns=to_drop, errors='ignore')
+					# Parse dates
+					for c in (cs.get('parse_dates') or []):
+						if c in new_df.columns:
+							try:
+								new_df[c] = pd.to_datetime(new_df[c], errors='coerce')
+							except Exception:
+								pass
+					# Type casts
+					new_df = _apply_type_casts(new_df, cs.get('type_casts'))
+					# Imputations
+					new_df = _apply_imputations(new_df, cs.get('imputations'))
+					# Outliers
+					out_cols = []
+					out_meta = cs.get('outliers') or {}
+					if isinstance(out_meta, dict) and out_meta.get('apply'):
+						out_cols = [c for c in (out_meta.get('columns') or []) if c in new_df.columns]
+					if out_cols:
+						new_df = _iqr_clip_inline(new_df, out_cols)
+
+					st.session_state["train_df"] = new_df
+					st.session_state["train_source_name"] = f"{work_name}（已按GPT建议清洗）"
+					st.success(f"已应用 GPT 清洗建议，当前形状：{new_df.shape}")
+				except Exception as e:
+					st.error(f"应用失败：{e}")
+
+		with col_btn2:
+			st.caption("或手动选择以下清洗操作：")
+			# 手动选择
+			all_cols = list(work_df.columns)
+			default_drop = [d.get('name') for d in (cs.get('drop_columns') or []) if d.get('name') in all_cols]
+			pick_drop = st.multiselect("要删除的列", options=all_cols, default=default_drop)
+
+			default_dates = [c for c in (cs.get('parse_dates') or []) if c in all_cols]
+			pick_dates = st.multiselect("要解析为日期的列", options=all_cols, default=default_dates)
+
+			out_meta = cs.get('outliers') or {}
+			default_out = [c for c in (out_meta.get('columns') or []) if c in all_cols]
+			pick_outliers = st.multiselect("IQR 裁剪的数值列", options=all_cols, default=default_out)
+
+			apply_imp = st.checkbox("按建议填充缺失值（数值: 中位/均值；类别: 众数）", value=True)
+			apply_casts = st.checkbox("按建议进行类型转换", value=True)
+
+			if st.button("🛠️ 应用选中清洗操作"):
+				try:
+					new_df = work_df.copy()
+					if pick_drop:
+						new_df = new_df.drop(columns=pick_drop, errors='ignore')
+					for c in pick_dates:
+						if c in new_df.columns:
+							try:
+								new_df[c] = pd.to_datetime(new_df[c], errors='coerce')
+							except Exception:
+								pass
+					if apply_casts:
+						new_df = _apply_type_casts(new_df, cs.get('type_casts'))
+					if apply_imp:
+						new_df = _apply_imputations(new_df, cs.get('imputations'))
+					if pick_outliers:
+						new_df = _iqr_clip_inline(new_df, pick_outliers)
+					st.session_state["train_df"] = new_df
+					st.session_state["train_source_name"] = f"{work_name}（已按手动清洗）"
+					st.success(f"已应用手动清洗，当前形状：{new_df.shape}")
+				except Exception as e:
+					st.error(f"应用失败：{e}")
 
 	# ------------------ 训练设置与训练流程（最小接入） ------------------
 	import sys, os
