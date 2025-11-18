@@ -710,6 +710,90 @@ if active_df is not None:
 				except Exception as e:
 					st.error(f"应用失败：{e}")
 
+		# ============ 清洗后数据可视化 ============
+		st.markdown("---")
+		st.markdown("### 📊 数据可视化（清洗后）")
+		viz_df = st.session_state.get("train_df", work_df)
+		viz_name = st.session_state.get("train_source_name", work_name)
+		st.caption(f"基于清洗后的数据：{viz_name} ；形状：{viz_df.shape}")
+
+		enable_viz = st.checkbox("启用可视化", value=True, key="enable_viz_after_clean")
+		if enable_viz and viz_df is not None and len(viz_df.columns) > 0:
+			try:
+				import altair as alt
+				_has_altair = True
+			except Exception:
+				alt = None
+				_has_altair = False
+			col_left, col_right = st.columns([1,2])
+			with col_left:
+				picked_col = st.selectbox("选择要可视化的列", options=list(viz_df.columns), key="viz_col_select")
+				if picked_col is not None:
+					series = viz_df[picked_col]
+					is_num = pd.api.types.is_numeric_dtype(series)
+					is_dt = pd.api.types.is_datetime64_any_dtype(series)
+					if is_num:
+						bins = st.slider("直方图分箱数", min_value=5, max_value=100, value=30, step=5, key="viz_bins")
+					elif is_dt:
+						freq = st.selectbox("时间聚合粒度", ["D","W","M"], index=0, help="按天/周/月统计计数", key="viz_dt_freq")
+					else:
+						topk = st.slider("类别Top N", min_value=5, max_value=100, value=20, step=5, key="viz_topk")
+
+			with col_right:
+				if 'picked_col' in locals() and picked_col is not None:
+					series = viz_df[picked_col]
+					is_num = pd.api.types.is_numeric_dtype(series)
+					is_dt = pd.api.types.is_datetime64_any_dtype(series)
+					if is_num:
+						# 数值：直方图 + 箱线图（无 Altair 时退化为柱状图）
+						base_df = pd.DataFrame({picked_col: pd.to_numeric(series, errors='coerce')})
+						if _has_altair:
+							hist = alt.Chart(base_df).mark_bar().encode(
+								alt.X(f"{picked_col}:Q", bin=alt.Bin(maxbins=bins)),
+								y='count()'
+							).properties(height=220)
+							box = alt.Chart(base_df).mark_boxplot().encode(x=alt.X(f"{picked_col}:Q")).properties(height=120)
+							st.altair_chart(hist & box, use_container_width=True)
+						else:
+							# 计算直方图数据并用原生 bar_chart 展示
+							try:
+								import numpy as np
+								counts, bin_edges = np.histogram(base_df[picked_col].dropna(), bins=bins)
+								centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+								df_hist = pd.DataFrame({"bin": centers, "count": counts})
+								st.bar_chart(df_hist.set_index("bin")["count"])
+							except Exception:
+								st.line_chart(base_df[picked_col])
+					elif is_dt:
+						# 时间：按粒度计数
+						df_dt = pd.DataFrame({picked_col: pd.to_datetime(series, errors='coerce')}).dropna()
+						if not df_dt.empty:
+							df_dt['__bucket__'] = df_dt[picked_col].dt.to_period(freq).dt.start_time
+							cnt = df_dt.groupby('__bucket__').size().reset_index(name='count')
+							if _has_altair:
+								chart = alt.Chart(cnt).mark_bar().encode(x='__bucket__:T', y='count:Q').properties(height=260)
+								st.altair_chart(chart, use_container_width=True)
+							else:
+								cnt = cnt.set_index('__bucket__')
+								st.bar_chart(cnt['count'])
+						else:
+							st.info("所选列无法解析为有效时间格式。")
+					else:
+						# 类别：TopK 频次条形图
+						vc = series.astype('string').value_counts().reset_index()
+						vc.columns = [picked_col, 'count']
+						vc = vc.head(topk)
+						if _has_altair:
+							chart = alt.Chart(vc).mark_bar().encode(
+								y=alt.Y(f"{picked_col}:N", sort='-x'),
+								x=alt.X('count:Q')
+							).properties(height=max(200, 16*len(vc)))
+							st.altair_chart(chart, use_container_width=True)
+						else:
+							st.bar_chart(vc.set_index(picked_col)['count'])
+		else:
+			st.info("无可视化数据可用或未选择列。")
+
 	# ------------------ 训练设置与训练流程（最小接入） ------------------
 	import sys, os
 	sys.path.append(os.path.dirname(os.path.dirname(__file__)))
