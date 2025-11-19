@@ -492,30 +492,31 @@ def suggest_research_questions(profile: Dict[str, Any]) -> Dict[str, Any]:
     # 读取问题建议 prompt（优先从项目根目录 prompts/）
     system_prompt = _read_prompt("research_questions.txt")
     if not system_prompt:
-        # 内置备选
-        system_prompt = """
-你是一个数据分析专家。基于数据集的结构信息，分析这个数据集可以用来研究什么问题。
+                # 内置备选（英文，保证 UI 一致性）
+                system_prompt = """
+You are a senior data science consultant. Based on the dataset profile (column names, dtypes, uniqueness, missingness, row count, etc.), propose valuable research questions and applications.
 
-请从以下角度分析：
-1. 预测性问题：基于现有特征可以预测什么？
-2. 描述性问题：数据中有什么有趣的模式和关系？
-3. 应用场景：在哪些实际业务场景中可以应用？
-4. 研究价值：对学术研究或商业决策有什么价值？
-
-返回 JSON 格式：
+Output strictly in English. Use only the columns provided in the profile. Respond with a strict JSON object using the following schema (keys must match exactly):
 {
-  "research_questions": [
-    {
-      "question": "问题描述",
-      "type": "预测/分析/探索",
-      "target": "目标变量（如果有）",
-      "difficulty": "简单/中等/困难",
-      "business_value": "商业价值描述"
+    "research_questions": [
+        {
+            "question": "Clear, actionable question in English",
+            "type": "prediction|analysis|exploration|classification|regression",
+            "target_column": "target column name if applicable, else null",
+            "difficulty": "Easy|Medium|Hard",
+            "business_value": "Short description of business/decision value in English",
+            "required_methods": ["e.g., linear regression, decision tree, random forest, collaborative filtering"]
+        }
+    ],
+    "application_scenarios": ["Concise scenario 1", "Concise scenario 2"],
+    "key_insights_potential": ["Potential insight 1", "Potential insight 2"],
+    "dataset_strengths": ["Strength 1", "Strength 2"],
+    "limitations": ["Limitation 1"],
+    "recommendations": {
+        "priority_questions": ["Top question 1", "Top question 2"],
+        "next_steps": ["Concrete next step 1", "Concrete next step 2"],
+        "additional_data": ["Optional additional data if any"]
     }
-  ],
-  "application_scenarios": ["场景1", "场景2", "场景3"],
-  "key_insights": ["洞察1", "洞察2"],
-  "recommendations": "使用建议"
 }
 """
     # 离线模式直接回退
@@ -523,16 +524,23 @@ def suggest_research_questions(profile: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "research_questions": [
                 {
-                    "question": "数据探索性分析：了解数据的基本特征和分布",
-                    "type": "探索",
-                    "target": "无",
-                    "difficulty": "简单",
-                    "business_value": "为后续深入分析提供基础"
+                    "question": "Exploratory data analysis: understand distributions and basic patterns",
+                    "type": "exploration",
+                    "target_column": None,
+                    "difficulty": "Easy",
+                    "business_value": "Provides a baseline understanding for further modeling",
+                    "required_methods": ["descriptive statistics", "histograms", "correlation analysis"]
                 }
             ],
-            "application_scenarios": ["数据科学研究", "业务分析"],
-            "key_insights": ["需要进一步分析确定"],
-            "recommendations": "LLM 处于离线模式（LLM_OFFLINE=1），请手动探索数据特征"
+            "application_scenarios": ["Data science prototyping", "Business analytics"],
+            "key_insights_potential": ["Identify missing values", "Spot skewed distributions"],
+            "dataset_strengths": [],
+            "limitations": [],
+            "recommendations": {
+                "priority_questions": ["Baseline EDA"],
+                "next_steps": ["Profile columns", "Check target availability"],
+                "additional_data": []
+            }
         }
     
     # 在线调用
@@ -552,20 +560,27 @@ def suggest_research_questions(profile: Dict[str, Any]) -> Dict[str, Any]:
         raw = resp.choices[0].message.content
         return json.loads(raw)
     except Exception as e:
-        # 简单的回退策略
+        # 简单的回退策略（英文）
         return {
             "research_questions": [
                 {
-                    "question": "数据探索性分析：了解数据的基本特征和分布",
-                    "type": "探索",
-                    "target": "无",
-                    "difficulty": "简单",
-                    "business_value": "为后续深入分析提供基础"
+                    "question": "Exploratory data analysis: understand distributions and basic patterns",
+                    "type": "exploration",
+                    "target_column": None,
+                    "difficulty": "Easy",
+                    "business_value": "Provides a baseline understanding for further modeling",
+                    "required_methods": ["descriptive statistics", "histograms", "correlation analysis"]
                 }
             ],
-            "application_scenarios": ["数据科学研究", "业务分析"],
-            "key_insights": ["需要进一步分析确定"],
-            "recommendations": f"由于分析出错({str(e)}), 建议手动探索数据特征"
+            "application_scenarios": ["Data science prototyping", "Business analytics"],
+            "key_insights_potential": ["Identify missing values", "Spot skewed distributions"],
+            "dataset_strengths": [],
+            "limitations": [],
+            "recommendations": {
+                "priority_questions": ["Baseline EDA"],
+                "next_steps": ["Profile columns", "Check target availability"],
+                "additional_data": []
+            }
         }
 
 def detect_task(profile: Dict[str, Any], user_question: str) -> Dict[str, Any]:
