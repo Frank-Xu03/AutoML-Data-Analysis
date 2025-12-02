@@ -2,7 +2,7 @@
 
 A practical data analysis platform that blends Automated ML (AutoML) with Large Language Models (LLMs).
 
-中文版本: README.md
+中文版本: README_cn.md
 
 ## What this project does
 
@@ -22,22 +22,26 @@ AutoML-LLM streamlines data workflows from ingestion and cleaning to feature eng
 ```
 AutoML Data Analysis/
 ├── automl-llm/
-│   ├── app/
-│   │   ├── ui_streamlit.py   # Streamlit UI
-│   │   └── llm_agent.py      # LLM agent (OpenAI or offline)
-│   ├── core/
-│   │   ├── ingest.py         # Read/profile data
-│   │   ├── cleandata.py      # Cleaning & preprocessing
-│   │   ├── models.py         # Model registry and search spaces
-│   │   └── train.py          # Training loop and leaderboard
-│   └── artifacts/
-├── examples/                  # Example CSVs
+│   ├── app/                   # Streamlit UI + LLM agent
+│   │   ├── ui_streamlit.py    # Streamlit web UI
+│   │   └── llm_agent.py       # LLM helper (online/offline)
+│   ├── core/                  # Core data/ML pipeline
+│   │   ├── ingest.py          # Read/profile data
+│   │   ├── cleandata.py       # Cleaning & preprocessing
+│   │   ├── models.py          # Model registry + search spaces
+│   │   └── train.py           # Training loop + leaderboard
+│   ├── prompts/               # Prompt templates (internal)
+│   └── artifacts/             # Model artifacts (internal)
 ├── demos/                     # Demo scripts
 ├── docs/                      # Reports and notes
+├── examples/                  # Example CSV datasets
+├── prompts/                   # Prompt templates (project-level)
 ├── tests/                     # Test scripts
+├── artifacts/                 # Training outputs (e.g., leaderboard.csv)
 ├── requirements.txt
 ├── usage_example.py
-└── README.md / README_en.md
+├── README.md                  # English readme
+└── README_cn.md               # Chinese readme
 ```
 
 ## Quick start

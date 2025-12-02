@@ -1049,7 +1049,13 @@ if active_df is not None:
 			if st.button(TT("🧠 分析训练结果", "🧠 Analyze training results"), key="btn_analyze_training_global"):
 				from llm_agent import analyze_training_results
 				with st.spinner(TT("AI 正在分析训练排行榜...", "AI analyzing leaderboard...")):
-					analysis = analyze_training_results(leaderboard_existing, _artifacts, _task_type_for_analysis, _plan_obj)
+					analysis = analyze_training_results(
+						leaderboard_existing,
+						_artifacts,
+						_task_type_for_analysis,
+						_plan_obj,
+						lang=st.session_state.get("lang", "zh")
+					)
 				st.session_state["__training_analysis__"] = analysis
 				st.success(TT("分析完成", "Analysis complete"))
 		with col_an2:
@@ -1078,6 +1084,7 @@ if active_df is not None:
 						rs_suggest,
 						trained_target=st.session_state.get("__trained_target__"),
 						picked_models=st.session_state.get("__trained_algos__"),
+						lang=st.session_state.get("lang","zh"),
 					)
 				st.session_state["__alignment_report__"] = align
 				st.success(TT("对齐检查完成", "Alignment check complete"))
@@ -1106,6 +1113,7 @@ if active_df is not None:
 						artifacts=_artifacts,
 						task_type=_task_type_for_analysis,
 						trained_target=st.session_state.get("__trained_target__"),
+						lang=st.session_state.get("lang","zh"),
 					)
 				st.session_state["__rq_answers__"] = ans
 				st.success(TT("研究问题回答已生成", "Research question answers generated"))
@@ -1149,7 +1157,7 @@ if active_df is not None:
 		if st.button(TT("🧠 使用 OpenAI 生成报告", "🧠 Generate report via OpenAI")):
 			with st.spinner(TT("正在生成报告…", "Generating report…")):
 				from llm_agent import write_report
-				report_md = write_report(bundle)
+				report_md = write_report(bundle, lang=st.session_state.get("lang","zh"))
 				st.session_state["__final_report_md__"] = report_md
 			st.success(TT("报告已生成！", "Report generated!"))
 

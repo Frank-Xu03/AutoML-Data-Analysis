@@ -643,7 +643,7 @@ def _fallback_plan(profile: Dict[str, Any]) -> Dict[str, Any]:
     )
     return fallback.model_dump()
 
-def write_report(bundle: Dict[str, Any]) -> str:
+def write_report(bundle: Dict[str, Any], lang: str = "zh") -> str:
     """
     用 OpenAI 生成总结报告（Markdown）。
     输入 bundle 可包含：
@@ -657,55 +657,59 @@ def write_report(bundle: Dict[str, Any]) -> str:
 
     返回 Markdown 字符串。
     """
+    # 本地双语开关
+    def TT(zh_text: str, en_text: str) -> str:
+        return en_text if (lang or "zh").lower().startswith("en") else zh_text
+
     # 离线或无密钥时：生成简要报告
     def _offline_report(b: Dict[str, Any]) -> str:
-        lines = ["# AutoML 总结报告", ""]
+        lines = [TT("# AutoML 总结报告", "# AutoML Summary Report"), ""]
         meta = b.get("meta", {}) or {}
         if meta:
-            lines.append("**数据集**: " + str(meta.get("dataset_name", "未知")))
+            lines.append(TT("**数据集**: ", "**Dataset**: ") + str(meta.get("dataset_name", TT("未知", "unknown"))))
             lines.append("")
 
         plan = b.get("plan") or {}
         if plan:
-            lines.append("## 任务判定")
-            lines.append(f"- 类型: {plan.get('task_type','unknown')}")
+            lines.append(TT("## 任务判定", "## Task Detection"))
+            lines.append(TT("- 类型: ", "- Type: ") + f"{plan.get('task_type','unknown')}")
             if plan.get("target_candidates"):
-                lines.append("- 目标候选: " + ", ".join(plan.get("target_candidates") or []))
+                lines.append(TT("- 目标候选: ", "- Target candidates: ") + ", ".join(plan.get("target_candidates") or []))
             if plan.get("algorithms"):
-                lines.append("- 推荐算法: " + ", ".join(plan.get("algorithms") or []))
+                lines.append(TT("- 推荐算法: ", "- Recommended algorithms: ") + ", ".join(plan.get("algorithms") or []))
             if plan.get("metrics"):
-                lines.append("- 评估指标: " + ", ".join(plan.get("metrics") or []))
+                lines.append(TT("- 评估指标: ", "- Metrics: ") + ", ".join(plan.get("metrics") or []))
             lines.append("")
 
         cs = b.get("cleaning_suggest") or {}
         if cs:
-            lines.append("## 数据清洗建议")
+            lines.append(TT("## 数据清洗建议", "## Cleaning Suggestions"))
             drops = [d.get("name") for d in (cs.get("drop_columns") or [])]
             if drops:
-                lines.append("- 删除列: " + ", ".join(drops))
+                lines.append(TT("- 删除列: ", "- Drop columns: ") + ", ".join(drops))
             imps = [f"{d.get('name')}=>{d.get('strategy')}" for d in (cs.get("imputations") or [])]
             if imps:
-                lines.append("- 缺失值填充: " + ", ".join(imps))
+                lines.append(TT("- 缺失值填充: ", "- Imputations: ") + ", ".join(imps))
             casts = [f"{d.get('name')}->{d.get('to_dtype')}" for d in (cs.get("type_casts") or [])]
             if casts:
-                lines.append("- 类型转换: " + ", ".join(casts))
+                lines.append(TT("- 类型转换: ", "- Type casts: ") + ", ".join(casts))
             lines.append("")
 
         rs = b.get("research_suggestions") or {}
         if rs:
-            lines.append("## 可研究的问题与应用")
+            lines.append(TT("## 可研究的问题与应用", "## Research Questions & Applications"))
             rqs = rs.get("research_questions") or []
             for i, q in enumerate(rqs[:5]):
-                lines.append(f"- 问题{i+1}: {q.get('question')}")
+                lines.append(TT(f"- 问题{i+1}: {q.get('question')}", f"- Question {i+1}: {q.get('question')}") )
             scenes = rs.get("application_scenarios") or []
             if scenes:
-                lines.append("- 应用场景: " + ", ".join(scenes[:5]))
+                lines.append(TT("- 应用场景: ", "- Scenarios: ") + ", ".join(scenes[:5]))
             lines.append("")
             # 追加研究问题分析结论
             try:
                 research_analysis = analyze_research_questions(rs, b.get("profile"))
-                lines.append("## 研究问题分析结论")
-                lines.append(research_analysis.get("markdown", "(分析生成失败)") )
+                lines.append(TT("## 研究问题分析结论", "## Research Question Analysis"))
+                lines.append(research_analysis.get("markdown", TT("(分析生成失败)", "(analysis failed)")) )
                 lines.append("")
             except Exception:
                 pass
@@ -718,34 +722,34 @@ def write_report(bundle: Dict[str, Any]) -> str:
 
         training_analysis_md = None
         if pd is not None and isinstance(lb, pd.DataFrame):
-            lines.append("## 训练结果摘要")
+            lines.append(TT("## 训练结果摘要", "## Training Summary"))
             try:
                 show_cols = [c for c in ["model","cv_score(primary)","acc","f1_macro","roc_auc","rmse","mae","r2"] if c in lb.columns]
                 if show_cols:
                     head = lb[show_cols].head(5).to_markdown(index=False)
                     lines.append(head)
                 else:
-                    lines.append("- 可展示的评估列为空，原始数据请在 UI 查看。")
+                    lines.append(TT("- 可展示的评估列为空，原始数据请在 UI 查看。", "- No displayable metric columns; please check UI for raw table."))
             except Exception:
-                lines.append("- 训练排行榜解析失败，原始数据请在 UI 查看。")
+                lines.append(TT("- 训练排行榜解析失败，原始数据请在 UI 查看。", "- Failed to parse leaderboard; please view in UI."))
             lines.append("")
             # 深度分析（启发式或后续在线 LLM 增强）
             try:
                 task_type = (b.get("plan") or {}).get("task_type") or "classification"
                 artifacts = b.get("artifacts") or {}
-                training_analysis_md = analyze_training_results(lb, artifacts, task_type, b.get("plan")).get("markdown")
+                training_analysis_md = analyze_training_results(lb, artifacts, task_type, b.get("plan"), lang=lang).get("markdown")
             except Exception:
                 training_analysis_md = None
         elif lb is not None:
-            # 非 DataFrame 情况（例如序列化后的对象或者其它结构）
-            lines.append("## 训练结果摘要")
-            lines.append("- 训练排行榜可在 UI 中查看。")
+            # 非 DataFrame 情况
+            lines.append(TT("## 训练结果摘要", "## Training Summary"))
+            lines.append(TT("- 训练排行榜可在 UI 中查看。", "- Leaderboard is available in the UI."))
             lines.append("")
         if training_analysis_md:
-            lines.append("## 训练结果分析")
+            lines.append(TT("## 训练结果分析", "## Training Result Analysis"))
             lines.append(training_analysis_md)
             lines.append("")
-        lines.append("> 提示：若配置 OPENAI_API_KEY，可生成更详细的自然语言报告。")
+        lines.append(TT("> 提示：若配置 OPENAI_API_KEY，可生成更详细的自然语言报告。", "> Tip: Configure OPENAI_API_KEY to generate a more detailed natural-language report."))
         return "\n".join(lines)
 
     if LLM_OFFLINE:
@@ -761,7 +765,7 @@ def write_report(bundle: Dict[str, Any]) -> str:
         if isinstance(lb_obj, pd.DataFrame) and not lb_obj.empty:
             task_type = (bundle.get("plan") or {}).get("task_type") or "classification"
             artifacts = bundle.get("artifacts") or {}
-            pre_training_md = analyze_training_results(lb_obj, artifacts, task_type, bundle.get("plan")).get("markdown")
+            pre_training_md = analyze_training_results(lb_obj, artifacts, task_type, bundle.get("plan"), lang=lang).get("markdown")
         rs_obj = bundle.get("research_suggestions")
         if isinstance(rs_obj, dict):
             pre_research_md = analyze_research_questions(rs_obj, bundle.get("profile")).get("markdown")
@@ -769,12 +773,20 @@ def write_report(bundle: Dict[str, Any]) -> str:
         pre_training_md = None
         pre_research_md = None
 
-    system_prompt = (
-        "你是数据科学报告生成器。基于提供的结构化信息生成专业中文 Markdown 报告。\n"
-        "结构：1) 数据概览 2) 任务判定 3) 数据清洗建议 4) 研究问题与应用场景 5) 训练结果摘要与分析 6) 下一步行动建议。\n"
-        "规则：\n- 关键点用精简项目符号；\n- 不虚构未提供的指标或模型；\n- 若训练结果缺失需明确说明；\n- 将提供的预生成训练分析加以提炼，避免重复原文逐字粘贴。\n"
-        "输出必须是纯 Markdown。"
-    )
+    if (lang or "zh").lower().startswith("en"):
+        system_prompt = (
+            "You are a data science report generator. Using the provided structured bundle, write a professional Markdown report in English.\n"
+            "Sections: 1) Data Overview 2) Task Detection 3) Cleaning Suggestions 4) Research Questions & Scenarios 5) Training Summary & Analysis 6) Next Steps.\n"
+            "Rules:\n- Use concise bullets;\n- Do not fabricate metrics/models;\n- If training results are missing, say so clearly;\n- Use the pre-generated analyses as input, but avoid copying verbatim.\n"
+            "Output must be pure Markdown."
+        )
+    else:
+        system_prompt = (
+            "你是数据科学报告生成器。基于提供的结构化信息生成专业中文 Markdown 报告。\n"
+            "结构：1) 数据概览 2) 任务判定 3) 数据清洗建议 4) 研究问题与应用场景 5) 训练结果摘要与分析 6) 下一步行动建议。\n"
+            "规则：\n- 关键点用精简项目符号；\n- 不虚构未提供的指标或模型；\n- 若训练结果缺失需明确说明；\n- 将提供的预生成训练分析加以提炼，避免重复原文逐字粘贴。\n"
+            "输出必须是纯 Markdown。"
+        )
 
     try:
         client = _client().with_options(timeout=45.0)
@@ -786,7 +798,8 @@ def write_report(bundle: Dict[str, Any]) -> str:
                 {"role": "user", "content": json.dumps({
                     "bundle": bundle,
                     "pre_training_analysis": pre_training_md,
-                    "pre_research_analysis": pre_research_md
+                    "pre_research_analysis": pre_research_md,
+                    "language": "en" if (lang or "zh").lower().startswith("en") else "zh"
                 }, ensure_ascii=False)}
             ],
         )
@@ -797,34 +810,26 @@ def write_report(bundle: Dict[str, Any]) -> str:
         return _offline_report(bundle)
 
 
-def analyze_training_results(leaderboard, artifacts: Dict[str, Any], task_type: str, plan: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """分析训练结果并返回结构化总结，同时包含可读Markdown。
-
-    返回字典字段：
-      - best_model: str | None
-      - primary_metric: str
-      - metrics_summary: Dict[str, Any]（包含范围与均值）
-      - time_stats: {fit_avg, predict_avg, fastest_model, slowest_model}
-      - potential_issues: List[str]
-      - recommendations: List[str]
-      - markdown: 汇总后的 Markdown 文本
-    在线模式：调用 OpenAI 根据原始表格与启发式初稿进行润色与深入建议。
-    离线模式：仅使用启发式。"""
+def analyze_training_results(leaderboard, artifacts: Dict[str, Any], task_type: str, plan: Optional[Dict[str, Any]] = None, lang: str = "zh") -> Dict[str, Any]:
+    """分析训练结果并返回结构化总结（支持中/英 Markdown）。"""
     import pandas as pd
+
+    def TT(zh_text: str, en_text: str) -> str:
+        return en_text if (lang or "zh").lower().startswith("en") else zh_text
+
     if leaderboard is None or not isinstance(leaderboard, pd.DataFrame) or leaderboard.empty:
         return {
             "best_model": None,
             "primary_metric": "cv_score(primary)",
             "metrics_summary": {},
             "time_stats": {},
-            "potential_issues": ["Leaderboard 为空，无法分析"],
-            "recommendations": ["确认已成功训练并生成 leaderboard.csv"],
-            "markdown": "# 训练结果分析\n\n未检测到有效的训练结果数据。"
+            "potential_issues": [TT("Leaderboard 为空，无法分析", "Leaderboard is empty; cannot analyze")],
+            "recommendations": [TT("确认已成功训练并生成 leaderboard.csv", "Ensure training finished and 'leaderboard.csv' exists")],
+            "markdown": TT("# 训练结果分析\n\n未检测到有效的训练结果数据。", "# Training Result Analysis\n\nNo valid training results detected."),
         }
 
     lb = leaderboard.copy()
     primary_metric = "cv_score(primary)"
-    # 找到最佳模型（按 primary metric 排序后第一行）
     if primary_metric in lb.columns:
         best_row = lb.sort_values(primary_metric, ascending=False).iloc[0]
         best_model = best_row.get("model")
@@ -834,9 +839,8 @@ def analyze_training_results(leaderboard, artifacts: Dict[str, Any], task_type: 
         best_model = best_row.get("model")
         best_score = None
 
-    # 收集关键指标列
-    cls_metrics = [c for c in ["acc","f1_macro","roc_auc"] if c in lb.columns]
-    reg_metrics = [c for c in ["rmse","mae","r2"] if c in lb.columns]
+    cls_metrics = [c for c in ["acc", "f1_macro", "roc_auc"] if c in lb.columns]
+    reg_metrics = [c for c in ["rmse", "mae", "r2"] if c in lb.columns]
     metric_cols = cls_metrics if task_type == "classification" else reg_metrics
 
     metrics_summary: Dict[str, Any] = {}
@@ -851,8 +855,7 @@ def analyze_training_results(leaderboard, artifacts: Dict[str, Any], task_type: 
                 "best": float(best_row.get(m)) if m in best_row else None,
             }
 
-    # 时间统计
-    time_stats = {}
+    time_stats: Dict[str, Any] = {}
     try:
         if "fit_s" in lb.columns and "predict_s" in lb.columns:
             time_stats = {
@@ -862,53 +865,51 @@ def analyze_training_results(leaderboard, artifacts: Dict[str, Any], task_type: 
                 "slowest_model": str(lb.sort_values("predict_s", ascending=False).iloc[0]["model"]),
             }
     except Exception:
-        pass
+        time_stats = {}
 
     potential_issues: List[str] = []
     recommendations: List[str] = []
-
-    # 启发式问题检测
     if task_type == "classification":
-        if "f1_macro" in metrics_summary and metrics_summary["f1_macro"]["best"] < 0.7:
-            potential_issues.append("最佳 F1_macro < 0.7，类别区分能力可能不足")
-            recommendations.append("尝试调参或引入更复杂模型（如提升迭代次数、使用集成方法）")
-        if "roc_auc" in metrics_summary and metrics_summary["roc_auc"]["best"] and metrics_summary["roc_auc"]["best"] < 0.75:
-            potential_issues.append("ROC_AUC < 0.75，正负类分离效果一般")
-            recommendations.append("尝试特征工程：添加交叉特征或目标编码")
+        if "f1_macro" in metrics_summary and metrics_summary["f1_macro"].get("best") is not None and metrics_summary["f1_macro"]["best"] < 0.7:
+            potential_issues.append(TT("最佳 F1_macro < 0.7，类别区分能力可能不足", "Best F1_macro < 0.7; class separability may be weak"))
+            recommendations.append(TT("尝试调参或引入更复杂模型（如提升迭代次数、使用集成方法）", "Tune hyperparameters or try stronger ensembles; increase search iterations"))
+        if "roc_auc" in metrics_summary and metrics_summary["roc_auc"].get("best") is not None and metrics_summary["roc_auc"]["best"] < 0.75:
+            potential_issues.append(TT("ROC_AUC < 0.75，正负类分离效果一般", "ROC_AUC < 0.75; positive vs negative separation is mediocre"))
+            recommendations.append(TT("尝试特征工程：添加交叉特征或目标编码", "Try feature engineering: cross features or target encoding"))
     else:
-        if "rmse" in metrics_summary and metrics_summary["rmse"]["std"] < 1e-9:
-            potential_issues.append("所有模型 RMSE 几乎相同，可能是数据泄露或特征单一")
-            recommendations.append("检查是否对训练/测试使用了完全相同的派生特征或数据泄露")
-        if "r2" in metrics_summary and metrics_summary["r2"]["best"] < 0.3:
-            potential_issues.append("最佳 R2 < 0.3，解释度较低")
-            recommendations.append("引入更多相关特征或尝试非线性模型")
+        if "rmse" in metrics_summary and metrics_summary["rmse"].get("std") is not None and metrics_summary["rmse"]["std"] < 1e-9:
+            potential_issues.append(TT("所有模型 RMSE 几乎相同，可能是数据泄露或特征单一", "All models have near-identical RMSE; possible leakage or low feature variance"))
+            recommendations.append(TT("检查是否对训练/测试使用了完全相同的派生特征或数据泄露", "Check for data leakage or identical feature pipelines between train/test"))
+        if "r2" in metrics_summary and metrics_summary["r2"].get("best") is not None and metrics_summary["r2"]["best"] < 0.3:
+            potential_issues.append(TT("最佳 R2 < 0.3，解释度较低", "Best R2 < 0.3; model explains little variance"))
+            recommendations.append(TT("引入更多相关特征或尝试非线性模型", "Add informative features or try non-linear models"))
 
     if not potential_issues:
-        recommendations.append("继续进行模型解释（SHAP/Permutation Importance）以验证特征贡献")
-    recommendations.append("对最佳模型进行持久化与版本记录")
-    recommendations.append("尝试减少拟合时间：剔除最慢模型或降低搜索迭代")
+        recommendations.append(TT("继续进行模型解释（SHAP/Permutation Importance）以验证特征贡献", "Proceed with model explainability (SHAP/Permutation Importance) to validate feature contributions"))
+    recommendations.append(TT("对最佳模型进行持久化与版本记录", "Persist and version the best model"))
+    recommendations.append(TT("尝试减少拟合时间：剔除最慢模型或降低搜索迭代", "Reduce training time: drop the slowest models or lower search iterations"))
 
-    # 初步 Markdown
-    md_lines = ["# 训练结果分析", ""]
-    md_lines.append(f"**任务类型**: {task_type}")
-    md_lines.append(f"**最佳模型**: `{best_model}`  (主指标={best_score:.4f} if best_score is not None else 'N/A')")
+    md_lines = [TT("# 训练结果分析", "# Training Result Analysis"), ""]
+    md_lines.append(f"{TT('**任务类型**', '**Task type**')}: {task_type}")
+    best_score_str = f"{best_score:.4f}" if best_score is not None else "N/A"
+    md_lines.append(f"{TT('**最佳模型**', '**Best model**')}: `{best_model}`  ({TT('主指标', 'primary metric')}={best_score_str})")
     if metric_cols:
-        md_lines.append("\n## 关键指标范围")
+        md_lines.append("\n" + TT("## 关键指标范围", "## Key Metric Ranges"))
         for m in metric_cols:
             ms = metrics_summary.get(m)
             if ms:
                 md_lines.append(f"- {m}: min={ms['min']:.4f}, max={ms['max']:.4f}, mean={ms['mean']:.4f}, best={ms['best']:.4f}")
     if time_stats:
-        md_lines.append("\n## 时间表现")
-        md_lines.append(f"- 平均训练秒: {time_stats.get('fit_avg'):.3f}")
-        md_lines.append(f"- 平均预测秒: {time_stats.get('predict_avg'):.6f}")
-        md_lines.append(f"- 最快预测模型: {time_stats.get('fastest_model')}")
-        md_lines.append(f"- 最慢预测模型: {time_stats.get('slowest_model')}")
+        md_lines.append("\n" + TT("## 时间表现", "## Time Performance"))
+        md_lines.append(f"- {TT('平均训练秒', 'Avg fit seconds')}: {time_stats.get('fit_avg'):.3f}")
+        md_lines.append(f"- {TT('平均预测秒', 'Avg predict seconds')}: {time_stats.get('predict_avg'):.6f}")
+        md_lines.append(f"- {TT('最快预测模型', 'Fastest prediction model')}: {time_stats.get('fastest_model')}")
+        md_lines.append(f"- {TT('最慢预测模型', 'Slowest prediction model')}: {time_stats.get('slowest_model')}")
     if potential_issues:
-        md_lines.append("\n## 潜在问题")
+        md_lines.append("\n" + TT("## 潜在问题", "## Potential Issues"))
         for p in potential_issues:
             md_lines.append(f"- {p}")
-    md_lines.append("\n## 建议下一步")
+    md_lines.append("\n" + TT("## 建议下一步", "## Recommended Next Steps"))
     for r in recommendations:
         md_lines.append(f"- {r}")
     heuristic_markdown = "\n".join(md_lines)
@@ -923,21 +924,14 @@ def analyze_training_results(leaderboard, artifacts: Dict[str, Any], task_type: 
         "markdown": heuristic_markdown,
     }
 
-    # 离线模式直接返回启发式
     if LLM_OFFLINE:
         return result
 
-    # 在线调用 OpenAI 对启发式进行增强
-    enhancement_prompt = (
-        "你是资深 AutoML 顾问。根据下方启发式初稿与原始表格数据（仅关键列），"
-        "生成更精炼、结构化的中文训练结果分析 Markdown：\n"
-        "- 保留最佳模型与关键数值；\n"
-        "- 对潜在问题进行验证语气说明；\n"
-        "- 给出 3-6 条优先级排序的可执行建议；\n"
-        "- 不要虚构不存在的指标。"
+    enhancement_prompt = TT(
+        "你是资深 AutoML 顾问。根据下方启发式初稿与原始表格数据（仅关键列），生成更精炼、结构化的中文训练结果分析 Markdown：\n- 保留最佳模型与关键数值；\n- 对潜在问题进行验证语气说明；\n- 给出 3-6 条优先级排序的可执行建议；\n- 不要虚构不存在的指标。",
+        "You are a senior AutoML consultant. Using the heuristic draft and the slim leaderboard (key columns only), write a concise, well-structured training result analysis in English (Markdown):\n- Keep best model and key numbers;\n- Phrase potential issues cautiously;\n- Provide 3–6 prioritized, actionable recommendations;\n- Do not fabricate metrics."
     )
 
-    # 压缩表格（避免 token 过多）
     slim_cols = [c for c in ["model", primary_metric, *metric_cols, "fit_s", "predict_s"] if c in lb.columns]
     slim_table = lb[slim_cols].head(50).to_dict(orient="records")
 
@@ -952,7 +946,8 @@ def analyze_training_results(leaderboard, artifacts: Dict[str, Any], task_type: 
                     "slim_table": slim_table,
                     "heuristic_markdown": heuristic_markdown,
                     "task_type": task_type,
-                    "plan": plan or {}
+                    "plan": plan or {},
+                    "language": "en" if (lang or "zh").lower().startswith("en") else "zh"
                 }, ensure_ascii=False)}
             ],
         )
@@ -972,6 +967,7 @@ def check_research_alignment(
     research_suggestions: Optional[Dict[str, Any]] = None,
     trained_target: Optional[str] = None,
     picked_models: Optional[List[str]] = None,
+    lang: str = "zh",
 ) -> Dict[str, Any]:
     """检查训练结果是否覆盖/支持推荐研究问题，返回结构化结论与 Markdown。
 
@@ -984,6 +980,10 @@ def check_research_alignment(
       - markdown: 汇总说明
     """
     import pandas as pd
+
+    def TT(zh_text: str, en_text: str) -> str:
+        return en_text if (lang or "zh").lower().startswith("en") else zh_text
+
     per_question: List[Dict[str, Any]] = []
 
     # 基础可用性检查
@@ -991,7 +991,7 @@ def check_research_alignment(
         return {
             "per_question": [],
             "summary": {"covered": 0, "partial": 0, "not_covered": 0, "total": 0},
-            "markdown": "# 一致性检查\n\n尚未提供推荐研究问题，无法对齐分析。",
+            "markdown": TT("# 一致性检查\n\n尚未提供推荐研究问题，无法对齐分析。", "# Alignment Check\n\nNo research questions provided; cannot run alignment analysis."),
         }
 
     try:
@@ -1003,7 +1003,7 @@ def check_research_alignment(
         return {
             "per_question": [],
             "summary": {"covered": 0, "partial": 0, "not_covered": 0, "total": len(research_suggestions.get("research_questions", []) or [])},
-            "markdown": "# 一致性检查\n\n训练排行榜为空，无法判断是否覆盖研究问题。",
+            "markdown": TT("# 一致性检查\n\n训练排行榜为空，无法判断是否覆盖研究问题。", "# Alignment Check\n\nLeaderboard is empty; cannot assess coverage of research questions."),
         }
 
     # 归一化：可用指标集合（来自 leaderboard 列和 artifacts.test_metrics）
@@ -1086,14 +1086,14 @@ def check_research_alignment(
         # 任务类型匹配
         task_match = (qtype == task_type) or (qtype == "analysis")
         if not task_match:
-            reasons.append(f"任务类型不匹配：问题类型={qtype}，训练任务={task_type}")
+            reasons.append(TT(f"任务类型不匹配：问题类型={qtype}，训练任务={task_type}", f"Task type mismatch: question={qtype}, training={task_type}"))
 
         # 目标列匹配（若问题声明了目标列，且我们知道训练目标）
         target_match = True
         if tcol and trained_target:
             target_match = (str(tcol) == str(trained_target))
             if not target_match:
-                reasons.append(f"目标列不一致：问题要求 `{tcol}`，训练使用 `{trained_target}`")
+                reasons.append(TT(f"目标列不一致：问题要求 `{tcol}`，训练使用 `{trained_target}`", f"Target column mismatch: question requires `{tcol}`, training used `{trained_target}`"))
 
         # 指标支持（按问题类型推断一组代表指标）
         expected_metrics = []
@@ -1122,12 +1122,12 @@ def check_research_alignment(
                 status = "partially_covered"
                 partial += 1
                 if not reasons:
-                    reasons.append("已匹配任务与目标，但缺少相应评估指标")
+                    reasons.append(TT("已匹配任务与目标，但缺少相应评估指标", "Task and target match, but required metrics are missing"))
         else:
             status = "not_covered"
             not_covered += 1
             if not reasons:
-                reasons.append("问题与当前训练配置不一致或信息不足")
+                reasons.append(TT("问题与当前训练配置不一致或信息不足", "Question misaligned with current training or insufficient info"))
 
         # 证据与建议
         evidence = {
@@ -1139,13 +1139,13 @@ def check_research_alignment(
         next_steps: List[str] = []
         if status != "covered":
             if qtype != task_type and qtype in ("classification", "regression"):
-                next_steps.append(f"为该问题单独发起 {qtype} 训练流程")
+                next_steps.append(TT(f"为该问题单独发起 {qtype} 训练流程", f"Launch a separate {qtype} training pipeline for this question"))
             if tcol and trained_target and tcol != trained_target:
-                next_steps.append(f"更换训练目标列为 `{tcol}` 或在 UI 中选择对应目标后重训")
+                next_steps.append(TT(f"更换训练目标列为 `{tcol}` 或在 UI 中选择对应目标后重训", f"Switch training target to `{tcol}` and retrain"))
             if not metrics_present and qtype in ("classification", "regression"):
-                next_steps.append("在排行榜中添加/展示该问题关键评估指标")
+                next_steps.append(TT("在排行榜中添加/展示该问题关键评估指标", "Add/show the key evaluation metrics for this question in the leaderboard"))
             if required_methods and not algos_present:
-                next_steps.append("加入问题所需的代表性算法（如 XGBoost/RandomForest）")
+                next_steps.append(TT("加入问题所需的代表性算法（如 XGBoost/RandomForest）", "Include representative algorithms required by the question (e.g., XGBoost/RandomForest)"))
 
         per_question.append({
             "question": qtext,
@@ -1162,23 +1162,29 @@ def check_research_alignment(
     summary = {"covered": covered, "partial": partial, "not_covered": not_covered, "total": len(questions)}
 
     # 生成 Markdown 汇总
-    lines = ["# 训练与研究问题一致性检查", ""]
-    lines.append(f"总计 {summary['total']} 个问题：\n- 覆盖: {covered}\n- 部分覆盖: {partial}\n- 未覆盖: {not_covered}")
+    lines = [TT("# 训练与研究问题一致性检查", "# Alignment with Research Questions"), ""]
+    lines.append(TT(
+        f"总计 {summary['total']} 个问题：\n- 覆盖: {covered}\n- 部分覆盖: {partial}\n- 未覆盖: {not_covered}",
+        f"Total {summary['total']} questions:\n- Covered: {covered}\n- Partially covered: {partial}\n- Not covered: {not_covered}"
+    ))
     lines.append("")
     for i, item in enumerate(per_question, 1):
         status_emoji = {"covered": "✅", "partially_covered": "🟨", "not_covered": "❌"}.get(item["status"], "•")
-        lines.append(f"## {status_emoji} 问题 {i}: {item['question']}")
-        lines.append(f"- 期望类型: {item['expected_type']}；训练类型: {task_type}")
+        lines.append(TT(f"## {status_emoji} 问题 {i}: {item['question']}", f"## {status_emoji} Question {i}: {item['question']}"))
+        lines.append(TT(f"- 期望类型: {item['expected_type']}；训练类型: {task_type}", f"- Expected type: {item['expected_type']}; training type: {task_type}"))
         if item.get("expected_target"):
-            lines.append(f"- 期望目标列: `{item['expected_target']}`；训练目标: `{trained_target or '未知'}`")
+            lines.append(TT(
+                f"- 期望目标列: `{item['expected_target']}`；训练目标: `{trained_target or '未知'}`",
+                f"- Expected target: `{item['expected_target']}`; training target: `{trained_target or 'unknown'}`"
+            ))
         if item.get("metrics_present"):
-            lines.append(f"- 指标支持: {', '.join(item['metrics_present'])}")
+            lines.append(TT(f"- 指标支持: {', '.join(item['metrics_present'])}", f"- Metrics present: {', '.join(item['metrics_present'])}"))
         if item.get("algos_present"):
-            lines.append(f"- 算法覆盖: {', '.join(item['algos_present'])}")
+            lines.append(TT(f"- 算法覆盖: {', '.join(item['algos_present'])}", f"- Algorithms covered: {', '.join(item['algos_present'])}"))
         if item.get("reasons"):
-            lines.append("- 备注/原因: " + "; ".join(item["reasons"]))
+            lines.append(TT("- 备注/原因: ", "- Notes/Reasons: ") + "; ".join(item["reasons"]))
         if item.get("next_steps"):
-            lines.append("- 下一步: " + "; ".join(item["next_steps"]))
+            lines.append(TT("- 下一步: ", "- Next steps: ") + "; ".join(item["next_steps"]))
         lines.append("")
 
     return {
@@ -1194,20 +1200,17 @@ def answer_research_questions(
     artifacts: Dict[str, Any],
     task_type: str,
     trained_target: Optional[str] = None,
+    lang: str = "zh",
 ) -> Dict[str, Any]:
-    """基于训练结果，尝试“作答”推荐研究问题并给出可验证的依据。
+    """基于训练结果回答研究问题，支持中/英输出。"""
+    def TT(zh_text: str, en_text: str) -> str:
+        return en_text if (lang or "zh").lower().startswith("en") else zh_text
 
-    逻辑：
-    - 若问题类型与当前训练任务一致，且目标列匹配（若提供），则用最佳模型的测试指标进行回答；
-    - 若类型一致但目标不匹配，给出原因与行动建议；
-    - 对探索/分析类问题，基于 profile 给出可执行的分析步骤建议；
-    - 产出 per_question 列表与汇总 Markdown。
-    """
     import pandas as pd
     if not isinstance(research_suggestions, dict) or "research_questions" not in research_suggestions:
         return {
             "answers": [],
-            "markdown": "# 研究问题作答\n\n未提供有效的研究问题对象。",
+            "markdown": TT("# 研究问题作答\n\n未提供有效的研究问题对象。", "# Answer Research Questions\n\nNo valid research questions object provided."),
         }
 
     qs = research_suggestions.get("research_questions", []) or []
@@ -1218,7 +1221,6 @@ def answer_research_questions(
     best_model_name = None
     best_metrics = {}
     try:
-        import pandas as pd  # 确保存在
         if isinstance(leaderboard, pd.DataFrame) and not leaderboard.empty:
             if "cv_score(primary)" in leaderboard.columns:
                 best_row = leaderboard.sort_values("cv_score(primary)", ascending=False).iloc[0]
@@ -1264,68 +1266,70 @@ def answer_research_questions(
     def exploration_hints(profile: Optional[Dict[str, Any]]) -> List[str]:
         hints: List[str] = []
         if not isinstance(profile, dict):
-            return ["执行基础 EDA：分布、缺失、相关性热力图"]
+            return TT("执行基础 EDA：分布、缺失、相关性热力图", "Run basic EDA: distributions, missingness, correlation heatmap").split("\n")
         cols = profile.get("columns") or []
         if isinstance(cols, list):
-            hints.append(f"列数量: {len(cols)}；示例: " + ", ".join([str((c or {}).get('name')) for c in cols[:5]]))
+            hints.append(TT(
+                f"列数量: {len(cols)}；示例: " + ", ".join([str((c or {}).get('name')) for c in cols[:5]]),
+                f"Columns: {len(cols)}; examples: " + ", ".join([str((c or {}).get('name')) for c in cols[:5]])
+            ))
         hints.extend([
-            "绘制数值列直方图与箱线图，检查偏态与异常值",
-            "对类别列统计 Top-N 频次并检查长尾",
-            "计算相关系数矩阵并展示热力图",
+            TT("绘制数值列直方图与箱线图，检查偏态与异常值", "Plot histograms and boxplots for numeric features to inspect skew/outliers"),
+            TT("对类别列统计 Top-N 频次并检查长尾", "For categorical features, show Top-N frequencies and long-tail"),
+            TT("计算相关系数矩阵并展示热力图", "Compute correlation matrix and show heatmap"),
         ])
         return hints
 
-    lines = ["# 研究问题作答", ""]
+    lines = [TT("# 研究问题作答", "# Answer Research Questions"), ""]
 
     for i, q in enumerate(qs, 1):
-        qtext = q.get("question") or f"问题{i}"
+        qtext = q.get("question") or TT(f"问题{i}", f"Question {i}")
         qtype = (q.get("type") or "").lower()
         tcol = q.get("target_column")
         answer_item: Dict[str, Any] = {"question": qtext, "type": qtype, "target": tcol}
 
         # 分类/回归问题尝试直接给出结论
-        if qtype in ("classification", "regression", "prediction", "regression"):
+        if qtype in ("classification", "regression", "prediction"):
             matches_task = (task_type == ("classification" if qtype == "classification" else "regression"))
             matches_target = True
             if tcol and trained_target:
                 matches_target = (str(tcol) == str(trained_target))
 
             if matches_task and matches_target and best_model_name:
-                # 直接引用最佳模型的测试指标
                 met_lines = format_metrics(task_type, best_metrics)
                 answer_item["status"] = "answered"
                 answer_item["best_model"] = best_model_name
                 answer_item["metrics"] = best_metrics
                 lines.append(f"## ✅ {qtext}")
                 if trained_target:
-                    lines.append(f"- 目标列: `{trained_target}`")
-                lines.append(f"- 最佳模型: `{best_model_name}`")
+                    lines.append(TT(f"- 目标列: `{trained_target}`", f"- Target: `{trained_target}`"))
+                lines.append(TT(f"- 最佳模型: `{best_model_name}`", f"- Best model: `{best_model_name}`"))
                 if met_lines:
-                    lines.append("- 测试集指标: " + "; ".join(met_lines))
+                    lines.append(TT("- 测试集指标: ", "- Test metrics: ") + "; ".join(met_lines))
                 else:
-                    lines.append("- 测试集指标: (未记录)")
-                lines.append("- 结论: 模型已能对该问题给出可量化的答案；建议结合业务阈值进一步评审。")
+                    lines.append(TT("- 测试集指标: (未记录)", "- Test metrics: (not recorded)"))
+                lines.append(TT("- 结论: 模型已能对该问题给出可量化的答案；建议结合业务阈值进一步评审。", "- Conclusion: The model provides a quantifiable answer; review against business thresholds."))
                 lines.append("")
             else:
                 answer_item["status"] = "not_answered"
                 reasons = []
                 if not matches_task:
-                    reasons.append(f"当前训练任务为 {task_type}，与问题类型不一致")
+                    reasons.append(TT(f"当前训练任务为 {task_type}，与问题类型不一致", f"Current training task is {task_type}, which differs from the question type"))
                 if tcol and trained_target and tcol != trained_target:
-                    reasons.append(f"问题目标列 `{tcol}` 与训练目标 `{trained_target}` 不一致")
+                    reasons.append(TT(f"问题目标列 `{tcol}` 与训练目标 `{trained_target}` 不一致", f"Question target `{tcol}` differs from training target `{trained_target}`"))
                 answer_item["reasons"] = reasons
                 lines.append(f"## ❌ {qtext}")
                 if reasons:
                     for r in reasons:
                         lines.append(f"- {r}")
-                lines.append("- 建议: 针对该问题重新选择目标列/任务类型后训练，并复核相应指标。\n")
+                lines.append(TT("- 建议: 针对该问题重新选择目标列/任务类型后训练，并复核相应指标。\n", "- Suggestion: retrain with the appropriate target/task type and verify the corresponding metrics.\n"))
         else:
             # 探索/分析类问题：提供操作性建议
             answer_item["status"] = "action_plan"
             steps = exploration_hints(profile)
             answer_item["steps"] = steps
             lines.append(f"## 📝 {qtext}")
-            lines.append("- 建议的分析步骤：")
+            lines.append(TT("- 建议的分析步骤：", "- Suggested analysis steps:"))
             for s in steps:
                 lines.append(f"  - {s}")
             lines.append("")

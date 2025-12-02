@@ -1,4 +1,4 @@
-movieId,links__imdbId,links__tmdbId,movies (1)__title,movies (1)__genres,ratings (1)__userId,ratings (1)__rating,ratings (1)__timestamp,tags (1)__userId,tags (1)__tag,tags (1)__timestamp
+movieId,links__imdbId,links__tmdbId,movies__title,movies__genres,ratings__userId,ratings__rating,ratings__timestamp,tags__userId,tags__tag,tags__timestamp
 1,114709,862.0,Toy Story (1995),Adventure|Animation|Children|Comedy|Fantasy,1.0,4.0,964982703.0,336.0,pixar,1139045764.0
 2,113497,8844.0,Jumanji (1995),Adventure|Children|Fantasy,6.0,4.0,845553522.0,62.0,fantasy,1528843929.0
 3,113228,15602.0,Grumpier Old Men (1995),Comedy|Romance,1.0,4.0,964981247.0,289.0,moldy,1143424860.0

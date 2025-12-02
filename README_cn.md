@@ -2,7 +2,7 @@
 
 🚀 **结合自动化机器学习（AutoML）与大语言模型（LLM）的智能数据分析平台**
 
-English version: README_en.md
+English version: README.md
 
 ## 📋 项目简介
 
@@ -21,24 +21,27 @@ AutoML-LLM 是一个创新的数据分析平台，融合了自动化机器学习
 
 ```
 AutoML Data Analysis/
-├── 📁 automl-llm/          # 主要应用代码
-│   ├── 📁 app/             # Streamlit UI 和 LLM 代理
-│   │   ├── ui_streamlit.py # 主要用户界面
-│   │   └── llm_agent.py    # LLM 智能代理
-│   ├── 📁 core/            # 核心数据处理模块
-│   │   ├── ingest.py       # 数据摄取和预处理
-│   │   ├── cleandata.py    # 数据清洗
-│   │   ├── models.py       # 机器学习模型定义
-│   │   └── train.py        # 模型训练和评估
-│   └── 📁 artifacts/       # 模型和结果存储
-├── 📁 tests/               # 完整测试套件
-├── 📁 demos/               # 演示脚本和示例
-├── 📁 docs/                # 详细文档和技术报告
-├── 📁 examples/            # 示例数据集
-├── 📁 prompts/             # LLM 提示模板
-├── 📄 usage_example.py     # 使用示例脚本
-├── 📄 requirements.txt     # Python 依赖
-└── 📄 README.md            # 项目说明（本文件）
+├── automl-llm/
+│   ├── app/                   # Streamlit 界面与 LLM 代理
+│   │   ├── ui_streamlit.py    # Web 界面
+│   │   └── llm_agent.py       # LLM 助手（支持离线回退）
+│   ├── core/                  # 核心数据/建模流水线
+│   │   ├── ingest.py          # 读取/画像
+│   │   ├── cleandata.py       # 清洗与预处理
+│   │   ├── models.py          # 模型注册与搜索空间
+│   │   └── train.py           # 训练与排行榜
+│   ├── prompts/               # 内部提示模板
+│   └── artifacts/             # 内部模型产物
+├── demos/                     # 演示脚本
+├── docs/                      # 文档与报告
+├── examples/                  # 示例 CSV 数据集
+├── prompts/                   # 项目级提示模板
+├── tests/                     # 测试脚本
+├── artifacts/                 # 训练输出（如 leaderboard.csv）
+├── requirements.txt
+├── usage_example.py
+├── README.md                  # 英文说明
+└── README_cn.md               # 中文说明
 ```
 
 ## 🚀 快速开始
@@ -132,19 +135,27 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), 'automl-llm'))
 
 from core.ingest import read_table
-from core.cleandata import clean_data
+from core.cleandata import prepare
 from core.train import run_all
 
-# 读取数据
-df = read_table("examples/your_data.csv")
+# 读取示例数据
+df = read_table('examples/tags.csv')
 
-# 自动数据清洗和预处理
-cleaned_data = clean_data(df, task_type="auto", target_col="your_target")
+# 数据预处理与拆分（请根据自己的目标列与任务类型调整）
+X_train, X_test, y_train, y_test, pre, col_info = prepare(
+    df, target='tag', task_type='classification'
+)
 
-# 自动模型训练和评估
-results = run_all(X_train, y_train, X_test, y_test, 
-                  task_type="classification", 
-                  picked_models=["random_forest", "xgboost"])
+# 训练与评估（模型名称使用短名，如 rf/xgb 等）
+leaderboard, artifacts = run_all(
+    X_train, y_train, X_test, y_test,
+    task_type='classification',
+    picked_models=['rf', 'xgb'],
+    preprocessor=pre,
+    n_iter=30,
+    cv_folds=5,
+    artifacts_dir='artifacts'
+)
 ```
 
 ## 🧪 运行测试
