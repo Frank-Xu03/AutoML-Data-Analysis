@@ -84,6 +84,23 @@ def demonstrate_correct_usage():
         )
         print(f"✅ 成功处理: 训练集大小 {X_train.shape}")
         
+        # 进一步演示：运行训练并生成排行榜与模型文件
+        try:
+            from core import train
+            leaderboard, artifacts = train.run_all(
+                X_train, y_train, X_test, y_test,
+                task_type=task_type,
+                picked_models=["rf", "xgb"],
+                preprocessor=pre,
+                n_iter=10,  # 演示用较小迭代
+                cv_folds=3,
+                artifacts_dir="artifacts"
+            )
+            print("训练排行榜:\n", leaderboard.head())
+            print("模型文件示例:", [v.get("model_path") for v in artifacts.values()])
+        except Exception as e:
+            print(f"训练运行时出错: {e}")
+        
     except Exception as e:
         print(f"处理 Tags 数据时出错: {e}")
     

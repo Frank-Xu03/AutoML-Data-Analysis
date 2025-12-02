@@ -5,7 +5,17 @@ import numpy as np
 import pandas as pd
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold, KFold
-from sklearn.metrics import get_scorer
+from sklearn.metrics import (
+    accuracy_score,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+    r2_score,
+    mean_squared_error,
+    mean_absolute_error,
+)
+import joblib
 
 from core.models import get_models
 
@@ -86,23 +96,72 @@ def run_all(
         y_pred = best.predict(X_test)
         pred_s = time.time() - t1
 
-        # Pack results for later evaluation (we'll compute full metric set in evaluate.py)
+        # Compute test metrics
+        test_metrics: Dict[str, Any] = {}
+        if task_type == "classification":
+            # 支持二分类/多分类的通用指标
+            try:
+                test_metrics["acc"] = float(accuracy_score(y_test, y_pred))
+                # 宏平均 F1 适用于类别不平衡
+                test_metrics["f1_macro"] = float(f1_score(y_test, y_pred, average="macro"))
+                test_metrics["precision_macro"] = float(precision_score(y_test, y_pred, average="macro", zero_division=0))
+                test_metrics["recall_macro"] = float(recall_score(y_test, y_pred, average="macro"))
+            except Exception:
+                pass
+            # 若可获得 predict_proba，计算 ROC-AUC（仅二分类/多标签需特别处理，这里以二分类为主）
+            try:
+                if hasattr(best, "predict_proba"):
+                    proba = best.predict_proba(X_test)
+                    if proba.ndim == 2 and proba.shape[1] == 2:
+                        test_metrics["roc_auc"] = float(roc_auc_score(y_test, proba[:, 1]))
+            except Exception:
+                pass
+        else:
+            try:
+                rmse = float(np.sqrt(mean_squared_error(y_test, y_pred)))
+                mae = float(mean_absolute_error(y_test, y_pred))
+                r2 = float(r2_score(y_test, y_pred))
+                test_metrics.update({"rmse": rmse, "mae": mae, "r2": r2})
+            except Exception:
+                pass
+
+        # Persist best model
+        model_path = os.path.join(artifacts_dir, f"best_model__{name}.pkl")
+        try:
+            joblib.dump(best, model_path)
+        except Exception:
+            model_path = None
+
+        # Pack results for later consumption
         artifacts[name] = {
             "best_estimator": best,
             "cv_best_score": float(search.best_score_),
             "cv_params": search.best_params_,
             "fit_time_s": fit_s,
             "predict_time_s": pred_s,
-            "y_pred": y_pred,  # temporary (evaluate will recompute if needed)
+            "y_pred": y_pred,
+            "test_metrics": test_metrics,
+            "model_path": model_path,
         }
 
-        rows.append({
+        row = {
             "model": name,
             "cv_score(primary)": float(search.best_score_),
             "fit_s": round(fit_s, 3),
             "predict_s": round(pred_s, 6),
             "params": search.best_params_,
-        })
+        }
+        # Merge key test metrics into leaderboard row (compact)
+        if task_type == "classification":
+            for k in ["acc", "f1_macro", "roc_auc"]:
+                if k in test_metrics:
+                    row[k] = round(float(test_metrics[k]), 6)
+        else:
+            for k in ["rmse", "mae", "r2"]:
+                if k in test_metrics:
+                    row[k] = round(float(test_metrics[k]), 6)
+
+        rows.append(row)
 
     leaderboard = pd.DataFrame(rows).sort_values("cv_score(primary)", ascending=(task_type!="classification"))
     # For regression, neg RMSE higher is better; we can leave sorted descending by default for clarity:

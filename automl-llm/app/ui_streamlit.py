@@ -52,176 +52,173 @@ active_df = None
 df_source_name = None
 loaded_dfs = {}
 
+# 统一创建用于上方选择与预览的容器，避免分支未定义
+select_container = st.container()
+preview_container = st.container()
+
 if uploaded_files:
 	examples_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'examples')
 	os.makedirs(examples_dir, exist_ok=True)
+	# 仅加载与保存文件，不在循环中渲染公共列相关组件，避免重复 key
 	for uf in uploaded_files:
 		try:
 			df_tmp = pd.read_csv(uf)
 			loaded_dfs[uf.name] = df_tmp
-			# 保存文件
 			save_path = os.path.join(examples_dir, uf.name)
 			with open(save_path, 'wb') as f:
 				f.write(uf.getbuffer())
 		except Exception as e:
 			st.error(TT(f"读取文件 {uf.name} 失败: {e}", f"Failed to read file {uf.name}: {e}"))
 
-	st.success(TT(f"成功载入 {len(loaded_dfs)} 个文件。", f"Loaded {len(loaded_dfs)} file(s) successfully."))
-
-	# 顶部占位：将“文件预览与分析”移动到合并功能上方显示
-	select_container = st.container()
-	# 顶部占位：将“数据预览/数据概览”也移动到合并功能上方显示
-	preview_container = st.container()
-
-	# -------- 新增：显示多个文件共同拥有的列名（公共列） --------
+	# 计算多文件公共列（一次性）
 	if len(loaded_dfs) >= 2:
-		# 计算所有数据集的列集合交集
 		list_of_colsets = [set(df.columns) for df in loaded_dfs.values() if hasattr(df, 'columns')]
-		if list_of_colsets:  # 防御性检查
+		if list_of_colsets:
 			common_columns = set.intersection(*list_of_colsets) if len(list_of_colsets) > 1 else list_of_colsets[0]
 		else:
 			common_columns = set()
+	else:
+		common_columns = set()
 
-		with st.expander(TT("📌 多文件公共列 (所有文件都包含)", "📌 Common columns across all files"), expanded=True):
-			if common_columns:
-				st.write(TT(f"共 {len(common_columns)} 个公共列：", f"Total {len(common_columns)} common column(s):"))
-				# 排序便于浏览
-				st.code("\n".join(sorted(common_columns)))
-			else:
-				st.warning(TT("未找到所有文件都共同拥有的列。", "No columns are common to all files."))
+	# 顶部容器（单实例）
+	select_container = st.container()
+	preview_container = st.container()
 
-			# 提示：可选展示每个文件缺失的列（帮助用户理解差异）
-			show_diff = st.checkbox(TT("显示各文件缺失公共列情况", "Show missing common columns per file"), value=False)
-			if show_diff and common_columns:
-				for fname, df_tmp in loaded_dfs.items():
-					missing_in_file = common_columns - set(df_tmp.columns)
-					if missing_in_file:
-						st.error(TT(f"{fname} 缺失 {len(missing_in_file)} 个公共列：{', '.join(sorted(missing_in_file))}", f"{fname} missing {len(missing_in_file)} common column(s): {', '.join(sorted(missing_in_file))}"))
-					else:
-						st.success(TT(f"{fname} 包含全部公共列 ✔", f"{fname} includes all common columns ✔"))
+	with st.expander(TT("📌 多文件公共列 (所有文件都包含)", "📌 Common columns across all files"), expanded=True):
+		if common_columns:
+			st.write(TT(f"共 {len(common_columns)} 个公共列：", f"Total {len(common_columns)} common column(s):"))
+			st.code("\n".join(sorted(common_columns)))
+		else:
+			st.warning(TT("未找到所有文件都共同拥有的列。", "No columns are common to all files."))
 
-			# ---------------- 合并功能（新增：横向匹配模式） ----------------
-			st.markdown("---")
-			st.markdown(TT("### 🔗 合并工具", "### 🔗 Merge Tool"))
-			merge_mode = st.radio(
-				TT("选择合并方式", "Choose merge mode"),
-				[TT("纵向堆叠（仅公共列）", "Vertical stack (common columns only)"), TT("横向匹配（公共列作为键，合并其余列）", "Horizontal join (use common columns as keys)")],
-				index=0,
-				help=TT("横向匹配=类似多表 join；纵向堆叠=append 行。", "Horizontal join ~ multi-table join; vertical stack ~ append rows.")
-			)
+		# 可选展示每个文件缺失公共列情况（单实例控件，避免重复 key）
+		show_diff = st.checkbox(TT("显示各文件缺失公共列情况", "Show missing common columns per file"), value=False, key="show_diff_missing_cols")
+		if show_diff and common_columns:
+			for fname, df_tmp in loaded_dfs.items():
+				missing_in_file = common_columns - set(df_tmp.columns)
+				if missing_in_file:
+					st.error(TT(f"{fname} 缺失 {len(missing_in_file)} 个公共列：{', '.join(sorted(missing_in_file))}", f"{fname} missing {len(missing_in_file)} common column(s): {', '.join(sorted(missing_in_file))}"))
+				else:
+					st.success(TT(f"{fname} 包含全部公共列 ✔", f"{fname} includes all common columns ✔"))
 
-			if merge_mode.startswith(TT("纵向", "Vertical")):
-				st.caption(TT("仅保留公共列并按行堆叠（之前的行为）。", "Keep only common columns and stack rows (previous behavior)."))
-				add_source_col = st.checkbox(TT("添加来源文件列 (_source_file)", "Add source file column (_source_file)"), value=True, key="add_source_file")
-				merge_btn = st.button(TT("⚙️ 执行纵向合并", "⚙️ Run vertical merge"), key="merge_vertical")
-				if merge_btn:
-					if not common_columns:
-						st.error(TT("无法合并：没有公共列。", "Cannot merge: no common columns."))
-					else:
+		# ---------------- 合并功能（横向 / 纵向） ----------------
+		st.markdown("---")
+		st.markdown(TT("### 🔗 合并工具", "### 🔗 Merge Tool"))
+		merge_mode = st.radio(
+			TT("选择合并方式", "Choose merge mode"),
+			[TT("纵向堆叠（仅公共列）", "Vertical stack (common columns only)"), TT("横向匹配（公共列作为键，合并其余列）", "Horizontal join (use common columns as keys)")],
+			index=0,
+			help=TT("横向匹配=类似多表 join；纵向堆叠=append 行。", "Horizontal join ~ multi-table join; vertical stack ~ append rows.")
+		)
+
+		if merge_mode.startswith(TT("纵向", "Vertical")):
+			st.caption(TT("仅保留公共列并按行堆叠（之前的行为）。", "Keep only common columns and stack rows (previous behavior)."))
+			add_source_col = st.checkbox(TT("添加来源文件列 (_source_file)", "Add source file column (_source_file)"), value=True, key="add_source_file")
+			merge_btn = st.button(TT("⚙️ 执行纵向合并", "⚙️ Run vertical merge"), key="merge_vertical")
+			if merge_btn:
+				if not common_columns:
+					st.error(TT("无法合并：没有公共列。", "Cannot merge: no common columns."))
+				else:
+					try:
+						merged_parts = []
+						for fname, df_part in loaded_dfs.items():
+							subset = df_part[list(common_columns)].copy()
+							if add_source_col:
+								subset["_source_file"] = fname
+							merged_parts.append(subset)
+						merged_df = pd.concat(merged_parts, ignore_index=True)
+						base_name = "merged_common.csv"
+						final_name = base_name
+						idx = 1
+						while final_name in loaded_dfs:
+							idx += 1
+							final_name = f"merged_common_{idx}.csv"
 						try:
-							merged_parts = []
-							for fname, df_part in loaded_dfs.items():
-								subset = df_part[list(common_columns)].copy()
-								if add_source_col:
-									subset["_source_file"] = fname
-								merged_parts.append(subset)
-							merged_df = pd.concat(merged_parts, ignore_index=True)
-							base_name = "merged_common.csv"
+							examples_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'examples')
+							os.makedirs(examples_dir, exist_ok=True)
+							merged_path = os.path.join(examples_dir, final_name)
+							merged_df.to_csv(merged_path, index=False, encoding="utf-8")
+						except Exception as fs_err:
+							st.warning(TT(f"合并文件保存失败，但内存依旧可用：{fs_err}", f"Failed to save merged file, but in-memory data is available: {fs_err}"))
+						loaded_dfs[final_name] = merged_df
+						st.session_state["preferred_file_name"] = final_name
+						st.session_state["merged_common_df"] = merged_df
+						st.success(TT(f"纵向合并成功：{final_name}，形状 {merged_df.shape}", f"Vertical merge success: {final_name}, shape {merged_df.shape}"))
+						csv_bytes = merged_df.to_csv(index=False).encode('utf-8')
+						st.download_button(TT("⬇️ 下载结果", "⬇️ Download result"), data=csv_bytes, file_name=final_name, mime="text/csv")
+						st.info(TT("在上方文件选择框中可选择该合并文件继续分析。", "Select this merged file above to continue analysis."))
+						st.session_state["train_df"] = merged_df
+						st.session_state["train_source_name"] = final_name
+						st.success(TT("训练将默认使用该合并结果。", "Training will default to this merged result."))
+					except Exception as merge_err:
+						st.error(TT(f"合并失败：{merge_err}", f"Merge failed: {merge_err}"))
+
+		else:  # 横向匹配
+			st.caption(TT("使用公共列作为键做多表 join，保留每个文件的其余列。", "Use common columns as keys to join tables; keep other columns."))
+			if not common_columns:
+				st.error(TT("无法进行横向匹配：没有公共列。", "Cannot do horizontal join: no common columns."))
+			else:
+				key_cols = sorted(common_columns)
+				st.info(TT(f"键列：{', '.join(key_cols)}", f"Key columns: {', '.join(key_cols)}"))
+				join_type = st.selectbox(TT("Join 类型", "Join type"), ["outer", "inner", "left"], index=0, help=TT("outer=保留所有键; inner=仅公共键; left=以第一个文件为主表", "outer=keep all keys; inner=only common keys; left=use first file as left table"))
+				prefix_cols = st.checkbox(TT("为非键列加文件名前缀以防冲突", "Prefix non-key columns with filename to avoid conflicts"), value=True, key="prefix_non_key")
+				drop_dup = st.checkbox(TT("如果某文件键列有重复行，仅保留第一条", "If duplicate keys exist in a file, keep the first"), value=True, key="drop_dup_keys")
+				btn_hmerge = st.button(TT("⚙️ 执行横向匹配合并", "⚙️ Run horizontal join"), key="merge_horizontal")
+				if btn_hmerge:
+					try:
+						merged_df = None
+						for idx_file, (fname, df_part) in enumerate(loaded_dfs.items()):
+							work_df = df_part.copy()
+							missing_keys = [k for k in key_cols if k not in work_df.columns]
+							if missing_keys:
+								st.error(TT(f"文件 {fname} 缺失键列 {missing_keys}，跳过。", f"File {fname} missing key columns {missing_keys}, skipping."))
+								continue
+							if drop_dup and work_df.duplicated(subset=key_cols).any():
+								dup_count = work_df.duplicated(subset=key_cols).sum()
+								st.warning(TT(f"{fname} 键列存在 {dup_count} 个重复，将保留第一条。", f"{fname} has {dup_count} duplicate key(s); keeping the first."))
+								work_df = work_df.drop_duplicates(subset=key_cols, keep='first')
+							non_key_cols = [c for c in work_df.columns if c not in key_cols]
+							if prefix_cols:
+								base_prefix = os.path.splitext(os.path.basename(fname))[0]
+								rename_map = {c: f"{base_prefix}__{c}" for c in non_key_cols}
+								work_df = work_df.rename(columns=rename_map)
+							cols_to_use = key_cols + [c for c in work_df.columns if c not in key_cols]
+							if merged_df is None:
+								merged_df = work_df[cols_to_use]
+							else:
+								merged_df = pd.merge(merged_df, work_df[cols_to_use], on=key_cols, how=join_type)
+						if merged_df is None:
+							st.error(TT("未能生成合并结果（可能所有文件都被跳过）", "No merged result produced (perhaps all files were skipped)"))
+						else:
+							base_name = "merged_horizontal.csv"
 							final_name = base_name
-							idx = 1
+							ix = 1
 							while final_name in loaded_dfs:
-								idx += 1
-								final_name = f"merged_common_{idx}.csv"
+								ix += 1
+								final_name = f"merged_horizontal_{ix}.csv"
 							try:
 								examples_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'examples')
 								os.makedirs(examples_dir, exist_ok=True)
 								merged_path = os.path.join(examples_dir, final_name)
-								merged_df.to_csv(merged_path, index=False, encoding="utf-8")
+								merged_df.to_csv(merged_path, index=False, encoding='utf-8')
 							except Exception as fs_err:
-								st.warning(TT(f"合并文件保存失败，但内存依旧可用：{fs_err}", f"Failed to save merged file, but in-memory data is available: {fs_err}"))
+								st.warning(TT(f"合并文件保存失败，但内存仍可使用：{fs_err}", f"Failed to save merged file, but in-memory data is available: {fs_err}"))
 							loaded_dfs[final_name] = merged_df
-							# 记录首选文件名，便于上方选择框自动选中
 							st.session_state["preferred_file_name"] = final_name
-							st.session_state["merged_common_df"] = merged_df
-							st.success(TT(f"纵向合并成功：{final_name}，形状 {merged_df.shape}", f"Vertical merge success: {final_name}, shape {merged_df.shape}"))
+							st.success(TT(f"横向匹配合并成功：{final_name}，形状 {merged_df.shape}", f"Horizontal join success: {final_name}, shape {merged_df.shape}"))
 							csv_bytes = merged_df.to_csv(index=False).encode('utf-8')
 							st.download_button(TT("⬇️ 下载结果", "⬇️ Download result"), data=csv_bytes, file_name=final_name, mime="text/csv")
-							st.info(TT("在上方文件选择框中可选择该合并文件继续分析。", "Select this merged file above to continue analysis."))
-							# 合并完成后，默认将该结果用于训练
+							st.info(TT("在上方文件选择框中可选择该横向合并文件继续分析。", "Select this horizontally merged file above to continue analysis."))
 							st.session_state["train_df"] = merged_df
 							st.session_state["train_source_name"] = final_name
 							st.success(TT("训练将默认使用该合并结果。", "Training will default to this merged result."))
-						except Exception as merge_err:
-								st.error(TT(f"合并失败：{merge_err}", f"Merge failed: {merge_err}"))
+					except Exception as e:
+						st.error(TT(f"横向合并失败：{e}", f"Horizontal merge failed: {e}"))
+else:
+	st.info(TT("上传 2 个及以上文件后，将在此显示它们的公共列。", "Upload 2 or more files to see common columns here."))
 
-			else:  # 横向匹配
-				st.caption(TT("使用公共列作为键做多表 join，保留每个文件的其余列。", "Use common columns as keys to join tables; keep other columns."))
-				if not common_columns:
-					st.error(TT("无法进行横向匹配：没有公共列。", "Cannot do horizontal join: no common columns."))
-				else:
-					key_cols = sorted(common_columns)
-					st.info(TT(f"键列：{', '.join(key_cols)}", f"Key columns: {', '.join(key_cols)}"))
-					join_type = st.selectbox(TT("Join 类型", "Join type"), ["outer", "inner", "left"], index=0, help=TT("outer=保留所有键; inner=仅公共键; left=以第一个文件为主表", "outer=keep all keys; inner=only common keys; left=use first file as left table"))
-					prefix_cols = st.checkbox(TT("为非键列加文件名前缀以防冲突", "Prefix non-key columns with filename to avoid conflicts"), value=True, key="prefix_non_key")
-					drop_dup = st.checkbox(TT("如果某文件键列有重复行，仅保留第一条", "If duplicate keys exist in a file, keep the first"), value=True, key="drop_dup_keys")
-					btn_hmerge = st.button(TT("⚙️ 执行横向匹配合并", "⚙️ Run horizontal join"), key="merge_horizontal")
-					if btn_hmerge:
-						try:
-							merged_df = None
-							for idx_file, (fname, df_part) in enumerate(loaded_dfs.items()):
-								work_df = df_part.copy()
-								missing_keys = [k for k in key_cols if k not in work_df.columns]
-								if missing_keys:
-									st.error(TT(f"文件 {fname} 缺失键列 {missing_keys}，跳过。", f"File {fname} missing key columns {missing_keys}, skipping."))
-									continue
-								# 处理重复键
-								if drop_dup and work_df.duplicated(subset=key_cols).any():
-									dup_count = work_df.duplicated(subset=key_cols).sum()
-									st.warning(TT(f"{fname} 键列存在 {dup_count} 个重复，将保留第一条。", f"{fname} has {dup_count} duplicate key(s); keeping the first."))
-									work_df = work_df.drop_duplicates(subset=key_cols, keep='first')
-								non_key_cols = [c for c in work_df.columns if c not in key_cols]
-								if prefix_cols:
-									base_prefix = os.path.splitext(os.path.basename(fname))[0]
-									rename_map = {c: f"{base_prefix}__{c}" for c in non_key_cols}
-									work_df = work_df.rename(columns=rename_map)
-								cols_to_use = key_cols + [c for c in work_df.columns if c not in key_cols]
-								if merged_df is None:
-									merged_df = work_df[cols_to_use]
-								else:
-									merged_df = pd.merge(merged_df, work_df[cols_to_use], on=key_cols, how=join_type)
-							if merged_df is None:
-								st.error(TT("未能生成合并结果（可能所有文件都被跳过）", "No merged result produced (perhaps all files were skipped)"))
-							else:
-								base_name = "merged_horizontal.csv"
-								final_name = base_name
-								ix = 1
-								while final_name in loaded_dfs:
-									ix += 1
-									final_name = f"merged_horizontal_{ix}.csv"
-								try:
-									examples_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'examples')
-									os.makedirs(examples_dir, exist_ok=True)
-									merged_path = os.path.join(examples_dir, final_name)
-									merged_df.to_csv(merged_path, index=False, encoding='utf-8')
-								except Exception as fs_err:
-									st.warning(TT(f"合并文件保存失败，但内存仍可使用：{fs_err}", f"Failed to save merged file, but in-memory data is available: {fs_err}"))
-								loaded_dfs[final_name] = merged_df
-								# 记录首选文件名，便于上方选择框自动选中
-								st.session_state["preferred_file_name"] = final_name
-								st.success(TT(f"横向匹配合并成功：{final_name}，形状 {merged_df.shape}", f"Horizontal join success: {final_name}, shape {merged_df.shape}"))
-								csv_bytes = merged_df.to_csv(index=False).encode('utf-8')
-								st.download_button(TT("⬇️ 下载结果", "⬇️ Download result"), data=csv_bytes, file_name=final_name, mime="text/csv")
-								st.info(TT("在上方文件选择框中可选择该横向合并文件继续分析。", "Select this horizontally merged file above to continue analysis."))
-								# 合并完成后，默认将该结果用于训练
-								st.session_state["train_df"] = merged_df
-								st.session_state["train_source_name"] = final_name
-								st.success(TT("训练将默认使用该合并结果。", "Training will default to this merged result."))
-						except Exception as e:
-									st.error(TT(f"横向合并失败：{e}", f"Horizontal merge failed: {e}"))
-	else:
-		st.info(TT("上传 2 个及以上文件后，将在此显示它们的公共列。", "Upload 2 or more files to see common columns here."))
-
-	# 在顶部容器中渲染选择框，使其显示在合并功能上方
+# 无论是否上传成功，只要有已加载的数据集就提供选择器
+if loaded_dfs:
 	with select_container:
 		file_names = list(loaded_dfs.keys())
 		preferred = st.session_state.get("preferred_file_name")
@@ -398,6 +395,27 @@ if active_df is not None:
 					st.markdown(TT(f"**💡 建议**: {recommendations}", f"**💡 Suggestion**: {recommendations}"))
 		
 		display_research_suggestions(suggestions)
+
+		# 研究问题分析结论按钮与展示
+		st.markdown(TT("### 🧠 研究问题分析结论", "### 🧠 Research Question Analysis"))
+		col_rqa1, col_rqa2 = st.columns([1,2])
+		with col_rqa1:
+			if st.button(TT("分析研究问题结论", "Analyze research conclusions"), key="btn_analyze_research"):
+				from llm_agent import analyze_research_questions
+				with st.spinner(TT("AI 正在综合研究问题并生成结论...", "AI synthesizing research questions...")):
+					res_analysis = analyze_research_questions(suggestions, st.session_state.get("profile_for_report"))
+				st.session_state["__research_analysis__"] = res_analysis
+				st.success(TT("研究问题分析完成", "Research analysis complete"))
+		with col_rqa2:
+			if st.session_state.get("__research_analysis__"):
+				ra = st.session_state["__research_analysis__"]
+				st.markdown(ra.get("markdown","(no analysis)"))
+				st.download_button(
+					TT("⬇️ 下载研究分析 Markdown", "⬇️ Download research analysis"),
+					data=ra.get("markdown",""),
+					file_name="research_analysis.md",
+					mime="text/markdown"
+				)
 		
 		# 原始 JSON (可选)
 		with st.expander(TT("🔍 查看详细分析结果 (JSON)", "🔍 View detailed analysis (JSON)"), expanded=False):
@@ -696,8 +714,8 @@ if active_df is not None:
 			default_out = [c for c in (out_meta.get('columns') or []) if c in all_cols]
 			pick_outliers = st.multiselect(TT("IQR 裁剪的数值列", "Numeric columns for IQR clipping"), options=all_cols, default=default_out)
 
-			apply_imp = st.checkbox(TT("按建议填充缺失值（数值: 中位/均值；类别: 众数）", "Impute missing values as suggested (numeric: median/mean; categorical: mode)"), value=True)
-			apply_casts = st.checkbox(TT("按建议进行类型转换", "Apply suggested type casts"), value=True)
+			apply_imp = st.checkbox(TT("按建议填充缺失值（数值: 中位/均值；类别: 众数）", "Impute missing values as suggested (numeric: median/mean; categorical: mode)"), value=True, key="apply_imputations_suggested")
+			apply_casts = st.checkbox(TT("按建议进行类型转换", "Apply suggested type casts"), value=True, key="apply_type_casts_suggested")
 
 			if st.button(TT("🛠️ 应用选中清洗操作", "🛠️ Apply selected operations")):
 				try:
@@ -938,7 +956,7 @@ if active_df is not None:
 	with st.expander(TT("⚙️ 评估数据量设置", "⚙️ Evaluation data limit"), expanded=False):
 		col_a, col_b = st.columns([1,2])
 		with col_a:
-			use_eval_limit = st.checkbox(TT("限制评估行数", "Limit evaluation rows"), value=True, help=TT("仅在评估指标/预测时使用测试集前 N 行，适合快速迭代。", "Use first N rows of test set only for evaluation/prediction; faster iteration."))
+			use_eval_limit = st.checkbox(TT("限制评估行数", "Limit evaluation rows"), value=True, key="use_eval_limit_rows", help=TT("仅在评估指标/预测时使用测试集前 N 行，适合快速迭代。", "Use first N rows of test set only for evaluation/prediction; faster iteration."))
 		with col_b:
 			if use_eval_limit:
 				custom_eval_rows = st.number_input(TT("评估最大行数 N", "Max evaluation rows N"), min_value=50, max_value=20000, value=500, step=50, help=TT("超过该行数时仅截取前 N 行；不影响模型训练。", "If larger, only take first N rows; training unaffected."))
@@ -958,6 +976,9 @@ if active_df is not None:
 		)
 		st.success(TT("训练完成！", "Training completed!"))
 		st.dataframe(leaderboard)
+		# 记录本次训练上下文，供后续一致性检查使用
+		st.session_state["__trained_target__"] = target
+		st.session_state["__trained_algos__"] = picked
 		# 根据用户设置限制评估阶段使用的测试集行数
 		if custom_eval_rows and custom_eval_rows > 0 and len(X_test) > custom_eval_rows:
 			n_eval = int(min(custom_eval_rows, len(X_test)))
@@ -978,3 +999,166 @@ if active_df is not None:
 			y_test_eval = y_test
 			st.info(TT(f"评估行数限制未启用，使用全部测试集 {len(X_test)} 行。", f"Eval row limit disabled: using all {len(X_test)} test rows."))
 		st.session_state["__eval_pack__"] = (task_type, X_test_eval, y_test_eval, artifacts)
+
+		# 存储排行榜用于报告生成
+		st.session_state["leaderboard_df"] = leaderboard
+
+		# 展示排行榜关键指标与模型下载
+		st.markdown(TT("### 🏁 训练结果与模型导出", "### 🏁 Training Results & Model Export"))
+		# 关键指标摘要
+		try:
+			if task_type == "classification":
+				metric_cols = [c for c in ["acc","f1_macro","roc_auc"] if c in leaderboard.columns]
+			else:
+				metric_cols = [c for c in ["rmse","mae","r2"] if c in leaderboard.columns]
+			if metric_cols:
+				st.caption(TT(f"展示关键评估指标：{', '.join(metric_cols)}", f"Showing key metrics: {', '.join(metric_cols)}"))
+				st.dataframe(leaderboard[["model","cv_score(primary)",*metric_cols,"fit_s","predict_s","params"]])
+		except Exception:
+			st.dataframe(leaderboard)
+
+		# 提供各模型文件下载
+		with st.expander(TT("⬇️ 下载最佳模型文件", "⬇️ Download best model files"), expanded=True):
+			for mname, info in (artifacts or {}).items():
+				mpath = info.get("model_path")
+				st.write(TT(f"模型：{mname}", f"Model: {mname}"))
+				if mpath and os.path.exists(mpath):
+					try:
+						with open(mpath, "rb") as fh:
+							st.download_button(TT(f"下载 {os.path.basename(mpath)}", f"Download {os.path.basename(mpath)}"), data=fh.read(), file_name=os.path.basename(mpath))
+					except Exception as e:
+						st.warning(TT(f"无法提供下载：{e}", f"Cannot provide download: {e}"))
+				else:
+					st.info(TT("模型文件尚未生成或路径不可用。", "Model file not generated or path unavailable."))
+
+
+		# （分析按钮移至全局区块，保证重新运行后仍可使用）
+
+	# ------------------ 报告生成（OpenAI） ------------------
+	# 全局显示训练结果分析区块（若已有 leaderboard），避免按钮只在训练当次出现
+	leaderboard_existing = st.session_state.get("leaderboard_df")
+	if leaderboard_existing is not None:
+		st.markdown(TT("### 🔎 训练结果分析 (LLM)", "### 🔎 Training Result Analysis (LLM)"))
+		# 安全获取 artifacts 与 task_type
+		_eval_pack = st.session_state.get("__eval_pack__") or (None, None, None, {})
+		_artifacts = _eval_pack[3] if isinstance(_eval_pack, (list, tuple)) and len(_eval_pack) == 4 else {}
+		_task_type_for_analysis = (st.session_state.get("plan") or {}).get("task_type") or _eval_pack[0] or "classification"
+		_plan_obj = st.session_state.get("plan")
+		col_an1, col_an2 = st.columns([1,2])
+		with col_an1:
+			if st.button(TT("🧠 分析训练结果", "🧠 Analyze training results"), key="btn_analyze_training_global"):
+				from llm_agent import analyze_training_results
+				with st.spinner(TT("AI 正在分析训练排行榜...", "AI analyzing leaderboard...")):
+					analysis = analyze_training_results(leaderboard_existing, _artifacts, _task_type_for_analysis, _plan_obj)
+				st.session_state["__training_analysis__"] = analysis
+				st.success(TT("分析完成", "Analysis complete"))
+		with col_an2:
+			if st.session_state.get("__training_analysis__"):
+				an = st.session_state["__training_analysis__"]
+				st.markdown(an.get("markdown","(no analysis)"))
+				st.download_button(
+					TT("⬇️ 下载训练分析 Markdown", "⬇️ Download training analysis"),
+					data=an.get("markdown",""),
+					file_name="training_analysis.md",
+					mime="text/markdown"
+				)
+
+		# —— 新增：与推荐研究问题一致性检查 ——
+		st.markdown(TT("### ✅ 与研究问题的一致性检查", "### ✅ Alignment with Research Questions"))
+		rs_suggest = st.session_state.get("research_suggestions")
+		col_chk1, col_chk2 = st.columns([1,2])
+		with col_chk1:
+			if st.button(TT("对齐检查", "Run alignment check"), key="btn_alignment_check"):
+				from llm_agent import check_research_alignment
+				with st.spinner(TT("正在对比训练结果与推荐研究问题...", "Comparing training against research questions...")):
+					align = check_research_alignment(
+						leaderboard_existing,
+						_artifacts,
+						_task_type_for_analysis,
+						rs_suggest,
+						trained_target=st.session_state.get("__trained_target__"),
+						picked_models=st.session_state.get("__trained_algos__"),
+					)
+				st.session_state["__alignment_report__"] = align
+				st.success(TT("对齐检查完成", "Alignment check complete"))
+		with col_chk2:
+			if st.session_state.get("__alignment_report__"):
+				rep = st.session_state["__alignment_report__"]
+				st.markdown(rep.get("markdown", "(no alignment result)"))
+				st.download_button(
+					TT("⬇️ 下载对齐报告 Markdown", "⬇️ Download alignment report"),
+					data=rep.get("markdown", ""),
+					file_name="alignment_with_research_questions.md",
+					mime="text/markdown"
+				)
+
+		# —— 新增：基于训练结果“回答”研究问题 ——
+		st.markdown(TT("### 💬 回答研究问题", "### 💬 Answer Research Questions"))
+		col_ans1, col_ans2 = st.columns([1,2])
+		with col_ans1:
+			if st.button(TT("生成回答", "Generate answers"), key="btn_answer_questions"):
+				from llm_agent import answer_research_questions
+				with st.spinner(TT("正在汇总最佳模型指标并作答...", "Summarizing best model metrics to answer...")):
+					ans = answer_research_questions(
+						research_suggestions=rs_suggest or {},
+						profile=st.session_state.get("profile_for_report"),
+						leaderboard=leaderboard_existing,
+						artifacts=_artifacts,
+						task_type=_task_type_for_analysis,
+						trained_target=st.session_state.get("__trained_target__"),
+					)
+				st.session_state["__rq_answers__"] = ans
+				st.success(TT("研究问题回答已生成", "Research question answers generated"))
+		with col_ans2:
+			if st.session_state.get("__rq_answers__"):
+				ans = st.session_state["__rq_answers__"]
+				st.markdown(ans.get("markdown", "(no answers)"))
+				st.download_button(
+					TT("⬇️ 下载回答 Markdown", "⬇️ Download answers"),
+					data=ans.get("markdown", ""),
+					file_name="research_questions_answers.md",
+					mime="text/markdown"
+				)
+	else:
+		st.info(TT("尚未训练，训练结果分析按钮将在训练完成后出现。", "No training yet; analysis button will appear after training."))
+
+	st.markdown("---")
+	st.subheader(TT("📄 生成总结报告（OpenAI）", "📄 Generate Summary Report (OpenAI)"))
+
+	# 组装报告上下文
+	bundle = {
+		"meta": {
+			"dataset_name": st.session_state.get("train_source_name", df_source_name),
+		},
+		"profile": {
+			"columns": [
+				{"name": c, "dtype": str((st.session_state.get("train_df", df))[c].dtype)}
+				for c in (st.session_state.get("train_df", df)).columns
+			]
+		},
+		"research_suggestions": st.session_state.get("research_suggestions"),
+		"plan": st.session_state.get("plan"),
+		"cleaning_suggest": st.session_state.get("cleaning_suggest"),
+		"research_suggestions": st.session_state.get("research_suggestions"),
+		"leaderboard": st.session_state.get("leaderboard_df"),
+		"artifacts": st.session_state.get("__eval_pack__", (None, None, None, {}))[3],
+	}
+
+	col_r1, col_r2 = st.columns([1,2])
+	with col_r1:
+		if st.button(TT("🧠 使用 OpenAI 生成报告", "🧠 Generate report via OpenAI")):
+			with st.spinner(TT("正在生成报告…", "Generating report…")):
+				from llm_agent import write_report
+				report_md = write_report(bundle)
+				st.session_state["__final_report_md__"] = report_md
+			st.success(TT("报告已生成！", "Report generated!"))
+
+	with col_r2:
+		if st.session_state.get("__final_report_md__"):
+			st.markdown(st.session_state["__final_report_md__"])
+			st.download_button(
+				TT("⬇️ 下载报告 Markdown", "⬇️ Download report (Markdown)"),
+				data=st.session_state["__final_report_md__"],
+				file_name="automl_report.md",
+				mime="text/markdown"
+			)
