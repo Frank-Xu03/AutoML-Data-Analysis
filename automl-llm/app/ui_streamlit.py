@@ -403,7 +403,11 @@ if active_df is not None:
 			if st.button(TT("分析研究问题结论", "Analyze research conclusions"), key="btn_analyze_research"):
 				from llm_agent import analyze_research_questions
 				with st.spinner(TT("AI 正在综合研究问题并生成结论...", "AI synthesizing research questions...")):
-					res_analysis = analyze_research_questions(suggestions, st.session_state.get("profile_for_report"))
+					res_analysis = analyze_research_questions(
+						suggestions,
+						st.session_state.get("profile_for_report"),
+						lang=st.session_state.get("lang","zh")
+					)
 				st.session_state["__research_analysis__"] = res_analysis
 				st.success(TT("研究问题分析完成", "Research analysis complete"))
 		with col_rqa2:

@@ -707,7 +707,7 @@ def write_report(bundle: Dict[str, Any], lang: str = "zh") -> str:
             lines.append("")
             # 追加研究问题分析结论
             try:
-                research_analysis = analyze_research_questions(rs, b.get("profile"))
+                research_analysis = analyze_research_questions(rs, b.get("profile"), lang=lang)
                 lines.append(TT("## 研究问题分析结论", "## Research Question Analysis"))
                 lines.append(research_analysis.get("markdown", TT("(分析生成失败)", "(analysis failed)")) )
                 lines.append("")
@@ -768,7 +768,7 @@ def write_report(bundle: Dict[str, Any], lang: str = "zh") -> str:
             pre_training_md = analyze_training_results(lb_obj, artifacts, task_type, bundle.get("plan"), lang=lang).get("markdown")
         rs_obj = bundle.get("research_suggestions")
         if isinstance(rs_obj, dict):
-            pre_research_md = analyze_research_questions(rs_obj, bundle.get("profile")).get("markdown")
+            pre_research_md = analyze_research_questions(rs_obj, bundle.get("profile"), lang=lang).get("markdown")
     except Exception:
         pre_training_md = None
         pre_research_md = None
@@ -1338,7 +1338,7 @@ def answer_research_questions(
 
     return {"answers": answers, "markdown": "\n".join(lines)}
 
-def analyze_research_questions(research_suggestions: Dict[str, Any], profile: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def analyze_research_questions(research_suggestions: Dict[str, Any], profile: Optional[Dict[str, Any]] = None, lang: str = "zh") -> Dict[str, Any]:
     """根据已有的研究问题建议生成结构化分析与结论（离线 + 在线增强）。
 
     返回字段：
@@ -1349,14 +1349,17 @@ def analyze_research_questions(research_suggestions: Dict[str, Any], profile: Op
       - next_steps: List[str] 整体下一步行动
       - markdown: 汇总后的 Markdown
     在线模式：将启发式初稿与原始问题传给 LLM 增强。"""
+    def TT(zh_text: str, en_text: str) -> str:
+        return en_text if (lang or "zh").lower().startswith("en") else zh_text
+
     if not isinstance(research_suggestions, dict):
         return {
             "prioritized": [],
             "feasibility": {},
-            "required_data_checks": ["研究问题对象无效，需重新生成"],
+            "required_data_checks": [TT("研究问题对象无效，需重新生成", "Invalid research questions object; please regenerate")],
             "recommended_metrics": {},
-            "next_steps": ["重新获取研究问题建议"],
-            "markdown": "# 研究问题分析\n\n输入无效，无法生成分析。"
+            "next_steps": [TT("重新获取研究问题建议", "Regenerate research question suggestions")],
+            "markdown": TT("# 研究问题分析\n\n输入无效，无法生成分析。", "# Research Question Analysis\n\nInvalid input; cannot generate analysis.")
         }
 
     questions = research_suggestions.get("research_questions", []) or []
@@ -1387,13 +1390,13 @@ def analyze_research_questions(research_suggestions: Dict[str, Any], profile: Op
             continue
         feas_notes = []
         if tcol:
-            feas_notes.append(f"依赖目标列 `{tcol}` 的完整性")
+            feas_notes.append(TT(f"依赖目标列 `{tcol}` 的完整性", f"Depends on completeness of target column `{tcol}`"))
         else:
-            feas_notes.append("无需明确监督目标，可先做探索性分析")
+            feas_notes.append(TT("无需明确监督目标，可先做探索性分析", "No explicit supervised target required; start with exploratory analysis"))
         if diff == "hard":
-            feas_notes.append("建议原型验证后再投入大量资源")
+            feas_notes.append(TT("建议原型验证后再投入大量资源", "Prototype first before heavy investment"))
         elif diff == "easy":
-            feas_notes.append("可快速启动，低实施成本")
+            feas_notes.append(TT("可快速启动，低实施成本", "Quick to start with low implementation cost"))
         feasibility[name] = "; ".join(feas_notes)
         # 指标推荐
         metrics = []
@@ -1414,42 +1417,42 @@ def analyze_research_questions(research_suggestions: Dict[str, Any], profile: Op
         if isinstance(cols, list):
             num_cols = sum(1 for c in cols if str(c.get("dtype","")) in ("int64","float64","int32","float32"))
             cat_cols = sum(1 for c in cols if "object" in str(c.get("dtype","")) or "category" in str(c.get("dtype","")))
-            required_data_checks.append(f"数值列数量: {num_cols}, 类别列数量: {cat_cols}")
+            required_data_checks.append(TT(f"数值列数量: {num_cols}, 类别列数量: {cat_cols}", f"Numeric columns: {num_cols}, Categorical columns: {cat_cols}"))
     required_data_checks.extend([
-        "确认目标列（若有）缺失率 < 5%",
-        "检查高基数类别特征是否需要降维或编码",
-        "验证日期字段是否已解析为 datetime",
+        TT("确认目标列（若有）缺失率 < 5%", "Ensure target (if any) has <5% missing"),
+        TT("检查高基数类别特征是否需要降维或编码", "Check whether high-cardinality categorical features need encoding or reduction"),
+        TT("验证日期字段是否已解析为 datetime", "Verify date fields are parsed as datetime"),
     ])
 
     next_steps = [
-        "锁定前 3 个高价值且中低难度的问题进入原型阶段",
-        "为每个问题建立数据字典与特征清单",
-        "制定指标计算脚本并评审",
+        TT("锁定前 3 个高价值且中低难度的问题进入原型阶段", "Commit the top 3 high-value, low/medium-difficulty questions to prototyping"),
+        TT("为每个问题建立数据字典与特征清单", "Create data dictionary and feature list per question"),
+        TT("制定指标计算脚本并评审", "Draft metric computation scripts and review"),
     ]
 
     # Markdown 初稿
-    md_lines = ["# 研究问题分析", ""]
+    md_lines = [TT("# 研究问题分析", "# Research Question Analysis"), ""]
     if prioritized_names:
-        md_lines.append("## 优先级排序（前 6 项）")
+        md_lines.append(TT("## 优先级排序（前 6 项）", "## Prioritized (Top 6)"))
         for i, n in enumerate(prioritized_names, 1):
             md_lines.append(f"{i}. {n}")
         md_lines.append("")
     if feasibility:
-        md_lines.append("## 可行性速览")
+        md_lines.append(TT("## 可行性速览", "## Feasibility Overview"))
         for k, v in feasibility.items():
             md_lines.append(f"- **{k}**: {v}")
         md_lines.append("")
     if recommended_metrics:
-        md_lines.append("## 推荐指标 / 分析度量")
+        md_lines.append(TT("## 推荐指标 / 分析度量", "## Recommended Metrics / Measures"))
         for k, mets in recommended_metrics.items():
             md_lines.append(f"- **{k}**: {', '.join(mets)}")
         md_lines.append("")
     if required_data_checks:
-        md_lines.append("## 前置数据检查")
+        md_lines.append(TT("## 前置数据检查", "## Pre-checks"))
         for c in required_data_checks:
             md_lines.append(f"- {c}")
         md_lines.append("")
-    md_lines.append("## 下一步行动")
+    md_lines.append(TT("## 下一步行动", "## Next Steps"))
     for ns in next_steps:
         md_lines.append(f"- {ns}")
     heuristic_md = "\n".join(md_lines)
@@ -1467,11 +1470,9 @@ def analyze_research_questions(research_suggestions: Dict[str, Any], profile: Op
         return result
 
     # 在线增强
-    enhancement_prompt = (
-        "你是资深数据咨询顾问。对给定研究问题启发式分析进行打磨：\n"
-        "- 保留关键信息，结构清晰；\n- 若问题与数据画像存在明显风险请标注；\n"
-        "- 给出 3 条更具战略性的建议替换或补充原始下一步；\n"
-        "- 输出纯 Markdown。"
+    enhancement_prompt = TT(
+        "你是资深数据咨询顾问。对给定研究问题启发式分析进行打磨：\n- 保留关键信息，结构清晰；\n- 若问题与数据画像存在明显风险请标注；\n- 给出 3 条更具战略性的建议替换或补充原始下一步；\n- 输出纯 Markdown。",
+        "You are a senior data consultant. Polish the heuristic analysis of research questions:\n- Keep key info, clear structure;\n- Flag obvious risks given the data profile;\n- Provide 3 strategic next-step suggestions to replace or enhance the originals;\n- Output pure Markdown in English."
     )
     try:
         client = _client().with_options(timeout=35.0)
@@ -1483,7 +1484,8 @@ def analyze_research_questions(research_suggestions: Dict[str, Any], profile: Op
                 {"role": "user", "content": json.dumps({
                     "raw_questions": questions,
                     "heuristic_markdown": heuristic_md,
-                    "profile_head": (profile or {})
+                    "profile_head": (profile or {}),
+                    "language": "en" if (lang or "zh").lower().startswith("en") else "zh"
                 }, ensure_ascii=False)}
             ],
         )
